@@ -5,7 +5,7 @@
 # headers = {
 #     "accept": "application/json, text/plain, */*",
 #     "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
-#     "authorization": "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzeXNfc2VydmljZV91c2VyX25hbWUiOiLlrovkuJbpvpkiLCJzeXNfcHJvZHVjdF9pZCI6IjYwZTkxOTk2NGQwYWE1YWY3YzBkOGEwNjU3MTc5YzY2YWYyZTQzNGIiLCJzeXNfdXNlcl9tb2JpbGVfcGhvbmUiOiIxMzU2OTQ3NzA0NiIsInVzZXJfbmFtZSI6IuWui-S4lum-mSIsInNjb3BlIjpbImFsbCJdLCJzeXNfdXNlcl9uYW1lIjoi5a6L5LiW6b6ZIiwic3lzX3NlcnZpY2VfdXNlcl9pZCI6NjA5MjYsImV4cCI6MTc1MzQ4OTU0NSwianRpIjoiZjNmZTNjNzctNzBiNi00MDczLWE1NzMtODY3NzllZmY1ZmYyIiwiZ2xvYmFsX3VzZXJfdXVpZCI6Ijk2OGVmOWExNjM4NWNmZjA1YWVjN2Q0YjQ2ZjAzNWRlIiwiYXV0aG9yaXRpZXMiOlsiYWRtaW4mSklFU1VBTkRBTiJdLCJjbGllbnRfaWQiOiLkuJzlsrjmmbrog73lpITnva7ns7vnu58tQ1BFIn0.BUhV43s6lu_-rL_zEi2-v3iOq1exyJUosxIV5QhlXLuG4V2jcbfGW_OPIZqH3JqanjsH6EuA9DsKVKoIkebNdpkjwR07-Jt5Mm-01yjd-VmBC_ZxYbe4XPpRpub8LXdO8P6Bl5bpsJC1RBdtvJzGUmBLsXgjBMuX-ltu2Fc1NuvWJ3Q-pDj_hGlab44kR0XZDXZuAB1IhPXIX9H2vnEdqrkwZLRrqG9-jnM614RmJ_57UkyIPLZbezexW3lLKUoKSBb416bY34o30r0yu9yneFgsQqDlYzXZNAACJwpzKzwMrfRyg2eoSil0VLUb1aheehKg8G4o69Xz8zPMyJpwng",  # 建议替换为最新 token
+#     "authorization": "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzeXNfc2VydmljZV91c2VyX25hbWUiOiLlrovkuJbpvpkiLCJzeXNfcHJvZHVjdF9pZCI6IjYwZTkxOTk2NGQwYWE1YWY3YzBkOGEwNjU3MTc5YzY2YWYyZTQzNGIiLCJzeXNfdXNlcl9tb2JpbGVfcGhvbmUiOiIxMzU2OTQ3NzA0NiIsInVzZXJfbmFtZSI6IuWui-S4lum-mSIsInNjb3BlIjpbImFsbCJdLCJzeXNfdXNlcl9uYW1lIjoi5a6L5LiW6b6ZIiwic3lzX3NlcnZpY2VfdXNlcl9pZCI6NjA5MjYsImV4cCI6MTc1MzU1NzczNSwianRpIjoiMGEyN2FhYTctNTJjNS00ZGUwLTgzZGUtZjRlNDQ5YjdkOWIxIiwiZ2xvYmFsX3VzZXJfdXVpZCI6Ijk2OGVmOWExNjM4NWNmZjA1YWVjN2Q0YjQ2ZjAzNWRlIiwiYXV0aG9yaXRpZXMiOlsiYWRtaW4mSklFU1VBTkRBTiJdLCJjbGllbnRfaWQiOiLkuJzlsrjmmbrog73lpITnva7ns7vnu58tQ1BFIn0.NvBFB7gH-PDn0BdFZhGz8pk23FAj1AJYF1dkb2Lfp-q3GYnNsvUGvtYbNDjJhf9Ap20RzMnCC11LmT8B9dBe1DkcPPgzQMa9Q4pJLlBYTaLiH0fmFH8HIo5vAHPbt6bRs3u3uqpiky3ltd0FVLXF0wQL3SH4Ojc_Dx8P7IGX217mYAGZHUfaod6MmLKdtQVvFW0sJvmwUM_zZ9XoLWuXGqVroPjjfsQ1bOssgKV_nqcZ6yL89FwdKHmIarpb_c7jAVHr51R18IvEls0NvSpD8shXSPf15k5_XdM2q1VA0FWmxa_Dodl0WriTFMMhqA1SrZY0q5yo2OTqWfnFRfACRA",  # 建议替换为最新 token
 #     "content-type": "application/json;charset=UTF-8",
 #     "origin": "https://disposal.fangnuokeji.com",
 #     "priority": "u=1, i",
@@ -87,7 +87,7 @@ def fetch_data(token, page):
     url = "https://gateway.fangnuokeji.com/caseCenter/case/allot/orgAllotCaseList"
     headers = {
         "accept": "application/json, text/plain, */*",
-        "authorization": token,
+        "authorization": 'Bearer ' + token,
         "content-type": "application/json;charset=UTF-8",
         "origin": "https://disposal.fangnuokeji.com",
         "referer": "https://disposal.fangnuokeji.com/",
@@ -162,7 +162,7 @@ def extract_required_fields(item):
     risk_tags = ""
 
     return {
-        "案件ID": item.get("caseId", ""),
+        "案件ID": item.get("caseNo", ""),
         "产品": item.get("productName", ""),
         "姓名": item.get("userName", ""),
         "证件号": item.get("idno", ""),
