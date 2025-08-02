@@ -79,11 +79,10 @@
 
 
 
-
 import requests
 import pandas as pd
 
-def fetch_data(token, page):
+def fetch_data(token, offset_case_id=None):
     url = "https://gateway.fangnuokeji.com/caseCenter/case/allot/orgAllotCaseList"
     headers = {
         "accept": "application/json, text/plain, */*",
@@ -93,8 +92,9 @@ def fetch_data(token, page):
         "referer": "https://disposal.fangnuokeji.com/",
         "user-agent": "Mozilla/5.0"
     }
+
     payload = {
-        "page": page,
+        "page": 1,
         "pageSize": 100,
         "departmentIdList": [],
         "caseNo": None,
@@ -139,27 +139,23 @@ def fetch_data(token, page):
         "sensitiveTagName": None,
         "entrustAmountSort": None,
         "entrustResidueAmountSort": None,
-        "offset": 0,
+        "offset": offset_case_id or 0,  # caseId or 数字偏移
         "groupByCaseUserUniqueId": 0
     }
 
-    # response = requests.post(url, headers=headers, json=payload)
     response = requests.post(url, headers=headers, json=payload)
-    print(f"请求第 {page} 页，状态码: {response.status_code}")
-    print("返回内容:", response.text[:500])  # 打印
+    print(f"请求 offset={offset_case_id}, 状态码: {response.status_code}")
     if response.status_code != 200:
-        print(f"请求第 {page} 页失败，状态码：{response.status_code}")
+        print(f"请求失败，状态码：{response.status_code}")
         return None
 
     data_json = response.json()
     return data_json.get("data", {}).get("data", [])
 
 def extract_required_fields(item):
-    # 临时标签用逗号连接 tagTempList 的 tagName
     temp_tags = ",".join(tag.get("tagName", "") for tag in item.get("tagTempList", []) if tag)
-    # 预警标签和风险标签字段示例没给，先空
-    warning_tags = ""
-    risk_tags = ""
+    warning_tags = ",".join(tag.get("tagName", "") for tag in item.get("warnTagList", []) if tag)
+    risk_tags = ",".join(tag.get("tagName", "") for tag in item.get("riskTagList", []) if tag)
 
     return {
         "案件ID": item.get("caseNo", ""),
@@ -183,42 +179,61 @@ def extract_required_fields(item):
         "最近跟进时间": item.get("entrustLastFollowTime", ""),
         "债人ID": item.get("caseUserUniqueId", ""),
         "案人ID": item.get("caseUserId", ""),
+        "部门ID": item.get("departmentId", ""),
+        "委案批次": item.get("entrustBatchName", ""),
+        "案件等级": item.get("caseLevelText", ""),
+        "委案类型": item.get("entrustTypeText", ""),
+        "是否敏感": item.get("isSensitive", ""),
+        "敏感标签": item.get("sensitiveTagName", ""),
+        "减免状态": item.get("reductionStatusText", ""),
+        "修复状态": item.get("repairStatusText", ""),
+        "诉讼类型": item.get("lawsuitTypeText", ""),
+        "是否有诉讼单": item.get("isHaveLawsuitOrder", ""),
+        "案件ID原始": item.get("caseId", ""),
     }
 
 def main():
     token = input("请输入 Token（Bearer 开头的完整字符串）: ").strip()
-    start_page = input("请输入起始页码（例如 1）: ").strip()
-    end_page = input("请输入结束页码（例如 3）: ").strip()
-
+    max_pages = input("请输入最多请求页数（例如 5）: ").strip()
+    
     try:
-        start_page = int(start_page)
-        end_page = int(end_page)
-        if start_page > end_page or start_page < 1:
-            print("页码范围有误！")
+        max_pages = int(max_pages)
+        if max_pages < 1:
+            print("页数必须大于 0")
             return
     except:
-        print("请输入有效的整数页码！")
+        print("请输入有效整数页数")
         return
 
+    offset = 0
     all_data = []
-    for page in range(start_page, end_page + 1):
-        print(f"正在请求第 {page} 页数据...")
-        page_data = fetch_data(token, page)
-        if page_data is None:
-            print("中断请求。")
-            return
+
+    for page in range(max_pages):
+        page_data = fetch_data(token, offset)
+        if not page_data:
+            print("未获取到数据或请求失败，终止。")
+            break
+
         all_data.extend(page_data)
 
+        if len(page_data) < 100:
+            print("已是最后一页")
+            break
+
+        # 更新 offset 为当前页最后一条数据的 caseId
+        offset = page_data[-1].get("caseId") or page_data[-1].get("caseNo")
+        if not offset:
+            print("无法获取下一页 offset（caseId），中止。")
+            break
+
     if not all_data:
-        print("未获取到任何数据。")
+        print("没有任何数据可导出。")
         return
 
-    processed_data = [extract_required_fields(item) for item in all_data]
-
-    df = pd.DataFrame(processed_data)
-    filename = f"exported_data_{start_page}_to_{end_page}.xlsx"
-    df.to_excel(filename, index=False)
-    print(f"数据导出完成，文件名：{filename}")
+    processed = [extract_required_fields(item) for item in all_data]
+    df = pd.DataFrame(processed)
+    df.to_excel("exported_data.xlsx", index=False)
+    print("数据导出完成，文件名：exported_data.xlsx")
 
 if __name__ == "__main__":
     main()
