@@ -119,13 +119,15 @@ def main():
 
     if not all_records:
         print("没有获取到任何数据，结束。")
-        return
+    else:
+        # 导出 Excel
+        df = pd.DataFrame(all_records)
+        output_file = "customerList.xlsx"
+        df.to_excel(output_file, index=False)
+        print(f"成功导出 {len(all_records)} 条记录到 {output_file}")
 
-    # 导出 Excel
-    df = pd.DataFrame(all_records)
-    output_file = "customerList.xlsx"
-    df.to_excel(output_file, index=False)
-    print(f"成功导出 {len(all_records)} 条记录到 {output_file}")
+    # 👇 这里加上暂停，不让窗口自动退出
+    input("任务完成，按回车键退出...")
 
 if __name__ == "__main__":
     main()
