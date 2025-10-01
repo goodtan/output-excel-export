@@ -1,14 +1,12 @@
-# request_customer_list.py
+# request_customer_list_to_excel.py
 import requests
 import urllib3
 import json
+import pandas as pd
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def parse_cookie_string(cookie_str):
-    """
-    把形如 "a=1; b=2" 的 cookie 字符串解析成 dict
-    """
     cookies = {}
     if not cookie_str:
         return cookies
@@ -24,17 +22,20 @@ def parse_cookie_string(cookie_str):
     return cookies
 
 def input_nonempty(prompt):
-    v = input(prompt).strip()
-    return v
+    return input(prompt).strip()
 
 def main():
-    print("向 https://120.55.38.129:9998/api/blade-system/baseCaseNew/customerList 发起 POST 请求")
-    print("按回车留空表示不填写该项（某些项若为空可能导致请求被拒绝）")
+    print("向 https://120.55.38.129:9998/api/blade-system/baseCaseNew/customerList 发起请求并导出 Excel")
+
+    # 输入认证信息
     authorization = input_nonempty("Authorization header (例如：Basic ...)：")
     blade_auth = input_nonempty("blade-Auth header (例如：bearer ...)：")
     saber_access_token = input_nonempty("saber-access-token cookie 值：")
     saber_refresh_token = input_nonempty("saber-refresh-token cookie 值：")
-    extra_cookies = input("额外 cookie（可选，例如 JG_...=value; other=val），留空则无：").strip()
+    extra_cookies = input("额外 cookie（可选，例如 JG_...=value; other=val）：").strip()
+
+    start_page = int(input("请输入起始页码：").strip() or "1")
+    end_page = int(input("请输入结束页码：").strip() or str(start_page))
 
     headers = {
         "Accept": "application/json, text/plain, */*",
@@ -43,15 +44,8 @@ def main():
         "Content-Type": "application/json;charset=UTF-8",
         "Origin": "https://120.55.38.129:9998",
         "Referer": "https://120.55.38.129:9998/",
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0",
-        "sec-ch-ua": "\"Chromium\";v=\"140\", \"Not=A?Brand\";v=\"24\", \"Microsoft Edge\";v=\"140\"",
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": "\"Windows\""
     }
-
     if authorization:
         headers["Authorization"] = authorization
     if blade_auth:
@@ -65,64 +59,73 @@ def main():
     if extra_cookies:
         cookies.update(parse_cookie_string(extra_cookies))
 
-    payload = {
-        "current": 1,
-        "size": 20,
-        "customerId": "",
-        "customerData": "",
-        "borrowerName": "",
-        "idNo": "",
-        "projectTypeList": [],
-        "originalCreditor": "",
-        "returnStatus": "",
-        "flagStatus": "",
-        "contractNo": "",
-        "sumSurplusPrincipal": "",
-        "sumSurplusLoan": "",
-        "phone": "",
-        "tenantId": "831444",
-        "deptCompanyId": "",
-        "salesmanName": "",
-        "unusedDays": "",
-        "commissionDays": "",
-        "paySchedule": "",
-        "surplusLoanLeft": "",
-        "surplusLoanRight": "",
-        "surplusPrincipalLeft": "",
-        "surplusPrincipalRight": "",
-        "overdueDaysLeft": "",
-        "overdueDaysRight": "",
-        "sumSurplusLoanLeft": "",
-        "sumSurplusLoanRight": "",
-        "sumSurplusPrincipalLeft": "",
-        "sumSurplusPrincipalRight": "",
-        "followTime": "",
-        "payedAmount": "",
-        "commissionDaysLeft": "",
-        "commissionDaysRight": "",
-        "payScheduleLeft": "",
-        "payScheduleRight": ""
-    }
-
     url = "https://120.55.38.129:9998/api/blade-system/baseCaseNew/customerList"
 
-    try:
-        print("\n发起请求（verify=False，对应 curl --insecure）...")
-        resp = requests.post(url, headers=headers, cookies=cookies, json=payload, verify=False, timeout=30)
-    except Exception as e:
-        print("请求失败：", e)
+    all_records = []
+
+    for page in range(start_page, end_page + 1):
+        payload = {
+            "current": page,
+            "size": 20,
+            "customerId": "",
+            "customerData": "",
+            "borrowerName": "",
+            "idNo": "",
+            "projectTypeList": [],
+            "originalCreditor": "",
+            "returnStatus": "",
+            "flagStatus": "",
+            "contractNo": "",
+            "sumSurplusPrincipal": "",
+            "sumSurplusLoan": "",
+            "phone": "",
+            "tenantId": "831444",
+            "deptCompanyId": "",
+            "salesmanName": "",
+            "unusedDays": "",
+            "commissionDays": "",
+            "paySchedule": "",
+            "surplusLoanLeft": "",
+            "surplusLoanRight": "",
+            "surplusPrincipalLeft": "",
+            "surplusPrincipalRight": "",
+            "overdueDaysLeft": "",
+            "overdueDaysRight": "",
+            "sumSurplusLoanLeft": "",
+            "sumSurplusLoanRight": "",
+            "sumSurplusPrincipalLeft": "",
+            "sumSurplusPrincipalRight": "",
+            "followTime": "",
+            "payedAmount": "",
+            "commissionDaysLeft": "",
+            "commissionDaysRight": "",
+            "payScheduleLeft": "",
+            "payScheduleRight": ""
+        }
+
+        print(f"请求第 {page} 页 ...")
+        try:
+            resp = requests.post(url, headers=headers, cookies=cookies, json=payload,
+                                 verify=False, timeout=30)
+            if resp.status_code != 200:
+                print(f"第 {page} 页请求失败，HTTP {resp.status_code}")
+                continue
+            data = resp.json()
+            records = data.get("data", {}).get("records", [])
+            print(f"第 {page} 页获取到 {len(records)} 条记录")
+            all_records.extend(records)
+        except Exception as e:
+            print(f"第 {page} 页请求异常: {e}")
+
+    if not all_records:
+        print("没有获取到任何数据，结束。")
         return
 
-    print("\nHTTP 状态码：", resp.status_code)
-    # 尝试解析 JSON
-    text = resp.text
-    try:
-        parsed = resp.json()
-        print("响应（JSON，格式化）：")
-        print(json.dumps(parsed, ensure_ascii=False, indent=2))
-    except Exception:
-        print("响应（非 JSON 或解析失败），原始文本：")
-        print(text)
+    # 导出 Excel
+    df = pd.DataFrame(all_records)
+    output_file = "customerList.xlsx"
+    df.to_excel(output_file, index=False)
+    print(f"成功导出 {len(all_records)} 条记录到 {output_file}")
 
 if __name__ == "__main__":
     main()
