@@ -1,10 +1,13 @@
 # request_customer_list_to_excel.py
 import requests
 import urllib3
-import json
 import pandas as pd
+import os
+import sys
+import datetime
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 
 def parse_cookie_string(cookie_str):
     cookies = {}
@@ -21,8 +24,10 @@ def parse_cookie_string(cookie_str):
             cookies[part] = ""
     return cookies
 
+
 def input_nonempty(prompt):
     return input(prompt).strip()
+
 
 def main():
     print("向 https://120.55.38.129:9998/api/blade-system/baseCaseNew/customerList 发起请求并导出 Excel")
@@ -119,15 +124,25 @@ def main():
 
     if not all_records:
         print("没有获取到任何数据，结束。")
-    else:
-        # 导出 Excel
-        df = pd.DataFrame(all_records)
-        output_file = "customerList.xlsx"
-        df.to_excel(output_file, index=False)
-        print(f"成功导出 {len(all_records)} 条记录到 {output_file}")
+        input("按回车键退出...")
+        return
 
-    # 👇 这里加上暂停，不让窗口自动退出
+    # 获取输出目录（脚本或 exe 所在目录）
+    if getattr(sys, 'frozen', False):
+        base_dir = os.path.dirname(sys.executable)
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # 带时间戳的文件名
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = os.path.join(base_dir, f"customerList_{timestamp}.xlsx")
+
+    df = pd.DataFrame(all_records)
+    df.to_excel(output_file, index=False)
+    print(f"成功导出 {len(all_records)} 条记录到 {output_file}")
+
     input("任务完成，按回车键退出...")
+
 
 if __name__ == "__main__":
     main()
