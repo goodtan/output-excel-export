@@ -23,10 +23,10 @@ jobs:
 
       - name: Build EXE
         run: |
-          pyinstaller --onefile "10.1output.py" --name 10.1output
+          pyinstaller --onefile "totalSum.py" --name totalSum
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
-          name: 10.1output
-          path: dist/10.1output.exe
+          name: totalSum
+          path: dist/totalSum.exe
