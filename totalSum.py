@@ -3,8 +3,8 @@
 批量报价计算（输入克重=克 g）
 - 批量来源：
   1) 文件：程序目录下 批量输入.xlsx / 批量输入.csv
-     必填列：成本 | 克重(g) | 利润比例   可选列：Zone(5/6)
-  2) 交互式：每行输入  成本,克重(g),利润比例[,Zone]
+     必填列：成本 | 克重(g) | 利润比例   可选列：Zone(5/6) | 备注
+  2) 交互式：每行输入  成本,克重(g),利润比例[,Zone][,备注]
      比例可写 0.6 / .6 / 60% / 60
 - 逻辑：
   * ≤450g 用“克表”第一个 >= g 的价
@@ -69,8 +69,13 @@ def usd_cny():
                 "https://open.er-api.com/v6/latest/USD"):
         try:
             r = requests.get(url, timeout=6).json()
-            rate = float(r["rates"]["CNY"])
-            if rate > 0: return rate
+            # 两个 API 的返回结构可能不同，但都通常含 rates.CNY
+            if "rates" in r and "CNY" in r["rates"]:
+                rate = float(r["rates"]["CNY"])
+                if rate > 0: return rate
+            if "rates" in r and isinstance(r["rates"], dict):
+                rate = float(r["rates"].get("CNY", 0))
+                if rate > 0: return rate
         except Exception:
             pass
     s = input("汇率获取失败，手动输入 USD→CNY（回车用 7.20）：").strip()
@@ -96,7 +101,7 @@ def head_charge(weight_kg: float) -> float:
 
 def match_tail_usd_from_grams(grams: int, zone: str) -> float:
     """克表优先；超出450g转kg后按KG表“区间起点价”（不进位；等于断点取该断点价）"""
-    is_z5 = str(zone).strip() in ("5", "Zone-5")
+    is_z5 = str(zone).strip() in ("5", "Zone-5", "Zone5", "Z5")
     # 1) 克表（第一个 >= g）
     for g_upper, z5, z6 in GRAM_PRICE_TABLE:
         if grams <= g_upper:
@@ -111,7 +116,7 @@ def match_tail_usd_from_grams(grams: int, zone: str) -> float:
             break
     return (Z5_USD[idx] if is_z5 else Z6_USD[idx])
 
-def compute_row(cost_rmb: float, grams: int, zone: str, ratio: float, rate_usd_cny: float):
+def compute_row(cost_rmb: float, grams: int, zone: str, ratio: float, rate_usd_cny: float, remark: str = ""):
     weight_kg = grams / 1000.0
     head = head_charge(weight_kg)
     tail_rmb = round(match_tail_usd_from_grams(grams, zone) * rate_usd_cny, 2)
@@ -127,7 +132,8 @@ def compute_row(cost_rmb: float, grams: int, zone: str, ratio: float, rate_usd_c
         "利润比例": ratio,
         "利润": profit,
         "面单": round(FACE_SHEET_RMB, 2),
-        "合计": total
+        "合计": total,
+        "备注": remark or ""
     }
 
 # —— 读取批量输入（优先文件）——
@@ -141,27 +147,46 @@ def read_batch_inputs(default_zone: str):
         need = {"成本","克重(g)","利润比例"}
         if not need.issubset(set(df.columns)):
             raise SystemExit("批量文件缺少必要列：成本、克重(g)、利润比例")
+        # Zone 与 备注 为可选列
         for _, r in df.iterrows():
             cost = float(r["成本"])
             grams = int(round(float(r["克重(g)"])))
             ratio = parse_ratio(r["利润比例"])
             zone = str(r.get("Zone", default_zone)).strip() or default_zone
-            rows.append((cost, grams, ratio, zone))
+            remark = str(r.get("备注", "") if "备注" in r.index else "").strip()
+            rows.append((cost, grams, ratio, zone, remark))
         print(f"已从文件读取 {len(rows)} 条记录。")
         return rows
 
-    print("交互式：每行输入 '成本,克重(g),利润比例[,Zone]'；示例： 71,520,60% 或 71,520,0.6,5")
+    print("交互式：每行输入 '成本,克重(g),利润比例[,Zone][,备注]'；示例： 71,520,60% 或 71,520,0.6,5 或 71,520,60%,5,客户A备注")
     while True:
         s = input("> ").strip()
         if not s:
             break
         try:
             parts = [x.strip() for x in s.replace("，", ",").split(",")]
-            cost = float(parts[0]); grams = int(round(float(parts[1]))); ratio = parse_ratio(parts[2])
-            zone = parts[3] if len(parts) >= 4 and parts[3] else default_zone
-            rows.append((cost, grams, ratio, zone))
+            cost = float(parts[0])
+            grams = int(round(float(parts[1])))
+            ratio = parse_ratio(parts[2])
+
+            zone = default_zone
+            remark = ""
+            if len(parts) >= 4 and parts[3]:
+                # 如果第4项看起来是 zone (5/6 或 Zone5/Zone-5 等) 就当 zone，否则当备注
+                p4 = parts[3]
+                if p4 in ("5", "6") or p4.lower().startswith("zone") or p4.upper().startswith("Z"):
+                    zone = p4
+                    if len(parts) >= 5:
+                        remark = parts[4]
+                else:
+                    # 第4项不是 zone，就当备注
+                    remark = p4
+                    # 若还有第5项，且第5项看起来像 zone，则把它作为 zone（容错）
+                    if len(parts) >= 5 and parts[4] in ("5", "6"):
+                        zone = parts[4]
+            rows.append((cost, grams, ratio, zone, remark))
         except Exception:
-            print("格式不对，请输入：成本,克重(g),利润比例[,Zone]")
+            print("格式不对，请输入：成本,克重(g),利润比例[,Zone][,备注]")
     return rows
 
 # —— 写 Excel（若占用则改名）——
@@ -184,8 +209,8 @@ def main():
     if not items:
         print("没有任何输入，已退出。"); return
 
-    out_rows = [compute_row(cost, grams, zone, ratio, rate) for (cost, grams, ratio, zone) in items]
-    df = pd.DataFrame(out_rows, columns=["成本","克重(g)","克重(kg)","Zone","头程","尾程","利润比例","利润","面单","合计"])
+    out_rows = [compute_row(cost, grams, zone, ratio, rate, remark) for (cost, grams, ratio, zone, remark) in items]
+    df = pd.DataFrame(out_rows, columns=["成本","克重(g)","克重(kg)","Zone","头程","尾程","利润比例","利润","面单","合计","备注"])
     write_output(df)
     print(df)
 
