@@ -13,6 +13,7 @@
   * 尾程(￥) = 尾程USD × USD→CNY 实时汇率
   * 利润 = 成本 × 利润比例（每行必填）
   * 合计 = 成本 + 头程 + 尾程 + 面单(5) + 利润
+  * 每行生成中文描述并写入 "描述" 列，同时在控制台打印
 """
 from pathlib import Path
 from datetime import datetime
@@ -93,11 +94,18 @@ def parse_ratio(x) -> float:
     return v / 100.0 if v > 1 else v
 
 # —— 头程 / 尾程 ——
-def head_charge(weight_kg: float) -> float:
+def get_head_rate_per_kg(weight_kg: float) -> float:
+    """返回用于计算头程的 区间单价(元/kg)"""
     for lo, hi, rate in HEAD_RATE_TABLE:
         if lo <= weight_kg <= hi:
-            return round(weight_kg * rate, 2)
-    return round(weight_kg * HEAD_RATE_TABLE[-1][2], 2)
+            return rate
+    return HEAD_RATE_TABLE[-1][2]
+
+def head_charge(weight_kg: float):
+    """返回 (头程金额(四舍五入到两位), 区间单价(元/kg))"""
+    rate = get_head_rate_per_kg(weight_kg)
+    amt = round(weight_kg * rate, 2)
+    return amt, rate
 
 def match_tail_usd_from_grams(grams: int, zone: str) -> float:
     """克表优先；超出450g转kg后按KG表“区间起点价”（不进位；等于断点取该断点价）"""
@@ -118,22 +126,37 @@ def match_tail_usd_from_grams(grams: int, zone: str) -> float:
 
 def compute_row(cost_rmb: float, grams: int, zone: str, ratio: float, rate_usd_cny: float, remark: str = ""):
     weight_kg = grams / 1000.0
-    head = head_charge(weight_kg)
+    head_amt, head_rate = head_charge(weight_kg)
     tail_rmb = round(match_tail_usd_from_grams(grams, zone) * rate_usd_cny, 2)
     profit = round(cost_rmb * ratio, 2)
-    total = round(cost_rmb + head + tail_rmb + FACE_SHEET_RMB + profit, 2)
+    total = round(cost_rmb + head_amt + tail_rmb + FACE_SHEET_RMB + profit, 2)
+
+    # 生成中文描述，数值均以两位小数显示（克重用整数 g）
+    desc_parts = []
+    desc_parts.append(f"成衣克重 {int(grams)}g")
+    desc_parts.append(f"成本 {cost_rmb:.2f}")
+    desc_parts.append(f"头程 {head_amt:.2f} ({int(head_rate)} 元/kg)")
+    desc_parts.append(f"面单处理费 {FACE_SHEET_RMB:.2f}")
+    desc_parts.append(f"尾程 {tail_rmb:.2f}")
+    desc_parts.append(f"利润 {profit:.2f}")
+    desc = "，".join(desc_parts) + f"，合计 {total:.2f}。"
+    if remark:
+        desc += f" 备注：{remark}"
+
     return {
         "成本": round(cost_rmb, 2),
         "克重(g)": int(grams),
         "克重(kg)": round(weight_kg, 3),
         "Zone": str(zone),
-        "头程": head,
+        "头程": head_amt,
+        "头程单价(元/kg)": head_rate,
         "尾程": tail_rmb,
         "利润比例": ratio,
         "利润": profit,
         "面单": round(FACE_SHEET_RMB, 2),
         "合计": total,
-        "备注": remark or ""
+        "备注": remark or "",
+        "描述": desc
     }
 
 # —— 读取批量输入（优先文件）——
@@ -210,9 +233,18 @@ def main():
         print("没有任何输入，已退出。"); return
 
     out_rows = [compute_row(cost, grams, zone, ratio, rate, remark) for (cost, grams, ratio, zone, remark) in items]
-    df = pd.DataFrame(out_rows, columns=["成本","克重(g)","克重(kg)","Zone","头程","尾程","利润比例","利润","面单","合计","备注"])
+    # 指定列顺序，包含 '描述'
+    cols = ["成本","克重(g)","克重(kg)","Zone","头程单价(元/kg)","头程","尾程","利润比例","利润","面单","合计","备注","描述"]
+    df = pd.DataFrame(out_rows, columns=cols)
     write_output(df)
-    print(df)
+
+    # 控制台逐行打印描述（便于查看）
+    print("\n逐行描述：")
+    for i, r in df.iterrows():
+        print(f"{i+1}. {r['描述']}")
+
+    print("\n汇总表：")
+    print(df.drop(columns=["描述"]))  # 控制台表格不重复显示描述列
 
 if __name__ == "__main__":
     main()
