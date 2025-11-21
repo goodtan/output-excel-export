@@ -1,23 +1,53 @@
 import time
 import pandas as pd
 import os
+import sys
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.edge.service import Service
-from webdriver_manager.microsoft import EdgeChromiumDriverManager
+# 【修改点1】引入 Chrome 的服务
+from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import NoAlertPresentException, UnexpectedAlertPresentException, TimeoutException
 
 # --- 配置 ---
 EXCEL_FILE = '借贷人数据.xlsx'
 
 def get_browser():
-    """启动 Edge 浏览器"""
-    options = webdriver.EdgeOptions()
-    options.add_argument('--start-maximized')
-    options.add_argument('--ignore-certificate-errors')
-    driver = webdriver.Edge(service=Service(EdgeChromiumDriverManager().install()), options=options)
+    """启动 Google Chrome 浏览器 (离线版)"""
+    # 【修改点2】使用 ChromeOptions
+    options = webdriver.ChromeOptions()
+    options.add_argument('--start-maximized') # 最大化
+    options.add_argument('--ignore-certificate-errors') # 忽略证书错误
+    
+    # 禁止浏览器显示“正在受到自动测试软件的控制”提示（可选优化）
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+
+    # 【修改点3】手动寻找本地的 chromedriver.exe
+    if getattr(sys, 'frozen', False):
+        # 如果是打包后的 exe
+        base_path = os.path.dirname(sys.executable)
+    else:
+        # 如果是脚本运行
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        
+    # 指定驱动文件名
+    driver_path = os.path.join(base_path, "chromedriver.exe")
+
+    print(f"正在加载驱动: {driver_path}")
+
+    if not os.path.exists(driver_path):
+        print("\n" + "!"*50)
+        print("❌ 错误：找不到 chromedriver.exe")
+        print(f"请确保 'chromedriver.exe' 文件位于文件夹: {base_path}")
+        print("!"*50 + "\n")
+        input("按回车键退出...")
+        sys.exit(1)
+
+    # 启动 Chrome
+    service = Service(executable_path=driver_path)
+    driver = webdriver.Chrome(service=service, options=options)
     return driver
 
 def save_to_excel(data_dict):
@@ -31,35 +61,33 @@ def save_to_excel(data_dict):
     print(f"✅ 已保存: {data_dict.get('姓名')}")
 
 def switch_to_content_iframe(driver):
-    """
-    【核心修复】自动查找并切换到包含数据的 iframe
-    """
+    """自动查找并切换到包含数据的 iframe"""
     try:
-        # 1. 先回到最外层，防止重复切换报错
         driver.switch_to.default_content()
-        
-        # 2. 查找页面里所有的 iframe
         iframes = driver.find_elements(By.TAG_NAME, "iframe")
-        
         if len(iframes) > 0:
-            print(f"🔍 检测到页面有 {len(iframes)} 个 iframe，尝试切换到第一个...")
-            # 通常这种系统的主体内容都在第一个或第二个 iframe 里
-            # 这里尝试切换到第一个可见的 iframe
+            # 尝试切入第一个 iframe
             driver.switch_to.frame(0) 
-            # 如果你的系统很复杂，可能需要改成 driver.switch_to.frame("mainFrame") 或其他ID
-            print("已进入 iframe 内部")
         else:
-            print("ℹ️ 未检测到 iframe，在主页面查找")
-            
+            pass
     except Exception as e:
-        print(f"⚠️ 切换 iframe 失败 (非致命错误): {e}")
+        print(f"⚠️ 切换 iframe 失败: {e}")
 
 def main():
-    driver = get_browser()
+    try:
+        driver = get_browser()
+    except Exception as e:
+        print(f"❌ 浏览器启动失败: {e}")
+        print("可能原因：驱动版本与浏览器版本不匹配，或驱动文件缺失。")
+        input("按回车键退出...")
+        return
+
+    # 你的系统地址
     target_url = "http://10.200.18.179:8088/wcs/base/task/taskview.jsp"
     driver.get(target_url)
 
     print("\n" + "="*50)
+    print("已启动 Google Chrome...")
     print("请手动登录系统...")
     print("进入第一个任务详情页后，在控制台按【回车键】开始")
     print("="*50 + "\n")
@@ -72,34 +100,30 @@ def main():
         try:
             print(f"\n>> 正在处理第 {count + 1} 个任务...")
             
-            # --- 【修复步骤】每次循环开始前，先尝试切入 iframe ---
+            # 尝试切入 iframe
             switch_to_content_iframe(driver)
 
-            # 1. 定位数据行 (增加超时重试)
             wait = WebDriverWait(driver, 10)
+            
+            # 1. 定位借贷人行
             try:
-                # 尝试定位 'Borrower'，这里用模糊匹配 'Borrower' 防止空格问题
                 borrower_tr = wait.until(EC.presence_of_element_located(
                     (By.XPATH, "//td[contains(text(), 'Borrower')]/..")
                 ))
             except TimeoutException:
-                # 如果切了 iframe 还是找不到，打印当前页面源码的一小部分帮我分析
                 print("❌ 找不到 'Borrower借贷人' 行！")
-                print("可能原因：1. 没在这个 iframe 里  2. 页面没加载出来")
-                print("当前页面HTML片段:", driver.page_source[:500]) # 打印前500字符看看是不是还在登录页
                 raise Exception("元素定位超时")
 
-            # 2. 点击“显示”
+            # 2. 点击显示
             try:
                 show_btn = borrower_tr.find_element(By.XPATH, ".//a[contains(text(), '显示')]")
                 driver.execute_script("arguments[0].click();", show_btn)
-                time.sleep(1) # 稍微多等一点点
+                time.sleep(1) 
             except:
                 pass 
 
             # 3. 提取数据
             cols = borrower_tr.find_elements(By.TAG_NAME, "td")
-            
             phone_cell = cols[2]
             try:
                 phone_text = phone_cell.find_element(By.XPATH, ".//a[contains(@id, 'phoneValue')]").text
@@ -120,7 +144,6 @@ def main():
             # 4. 点击催记
             print("正在打开催记面板...")
             try:
-                # 既然都在 iframe 里了，这里直接找
                 cuiji_tab = driver.find_element(By.XPATH, "//*[contains(text(),'催') and contains(text(),'记')]")
                 driver.execute_script("arguments[0].click();", cuiji_tab)
                 time.sleep(1) 
@@ -136,12 +159,11 @@ def main():
             
             count += 1
             
-            # 6. 检测弹窗 (检测弹窗时，不需要管 iframe，Selenium 会自动处理 Alert)
+            # 6. 检测弹窗
             time.sleep(1.5) 
             try:
                 alert = driver.switch_to.alert
                 alert_text = alert.text
-                print(f"检测到弹窗: {alert_text}")
                 
                 if "处理完" in alert_text or "列表" in alert_text:
                     print("\n" + "★"*30)
@@ -166,10 +188,7 @@ def main():
 
         except Exception as e:
             print(f"❌ 发生错误: {e}")
-            # 出错后等待时间加长，方便你看清屏幕
             time.sleep(5)
-            # 询问是否重试
-            # break # 如果你想出错就停止，取消这行注释
             
     print(f"\n程序退出。共保存 {count} 条数据。")
     input("按回车键关闭窗口...")
