@@ -12,6 +12,9 @@ from selenium.common.exceptions import NoAlertPresentException, UnexpectedAlertP
 # --- 配置 ---
 EXCEL_FILE = '借贷人数据.xlsx'
 
+# 基础登录地址 (只填 IP 和端口即可，系统会自动跳登录页)
+BASE_URL = "http://10.200.18.179:8088" 
+
 def get_browser():
     """启动 Google Chrome 浏览器"""
     options = webdriver.ChromeOptions()
@@ -47,54 +50,36 @@ def save_to_excel(data_dict):
     print(f"✅ 已保存: {data_dict.get('姓名')}")
 
 def smart_switch_to_iframe(driver):
-    """
-    【核心黑科技】智能寻找包含数据的 iframe
-    不依赖 ID，而是挨个进去看有没有'Borrower借贷人'这几个字
-    """
-    print("🔍 正在扫描页面框架，寻找数据...")
+    """智能寻找包含数据的 iframe"""
+    print("🔍 正在扫描当前页面寻找数据...")
     
     # 1. 先切回最外层
     driver.switch_to.default_content()
     
-    # 检查最外层有没有
-    if len(driver.find_elements(By.XPATH, "//*[contains(text(), 'Borrower借贷人')]")) > 0:
-        print("✅ 数据就在最外层，无需切换")
-        return True
-
-    # 2. 尝试根据 ID 直接切（为了兼容性保留这步）
+    # 2. 优先尝试根据 ID 切换 (根据之前的源码分析，这是最准的)
     try:
         driver.switch_to.frame("frmcaseMainInfo")
-        # 检查切进去对不对
+        # 验证一下里面有没有 Borrow借贷人
         if len(driver.find_elements(By.XPATH, "//*[contains(text(), 'Borrower借贷人')]")) > 0:
-            print("✅ 通过 ID 锁定数据框架")
+            print("✅ 已切入数据框架 (frmcaseMainInfo)")
             return True
         driver.switch_to.default_content() # 不对就退出来
     except:
         pass
 
-    # 3. 暴力遍历所有 iframe
+    # 3. 如果 ID 不对，暴力遍历所有 iframe
     iframe_list = driver.find_elements(By.TAG_NAME, "iframe")
-    print(f"ℹ️ 发现 {len(iframe_list)} 个潜在框架，正在逐一排查...")
-    
     for i in range(len(iframe_list)):
         try:
-            driver.switch_to.default_content() # 每次都从头开始
-            driver.switch_to.frame(i) # 切入第 i 个框架
-            
-            # 看看有没有我们要找的文字
-            # 这里用 find_elements 如果找不到不会报错只会返回空列表
-            elements = driver.find_elements(By.XPATH, "//*[contains(text(), 'Borrower借贷人')]")
-            
-            if len(elements) > 0:
-                print(f"✅ 成功在第 {i+1} 个框架中找到数据！")
+            driver.switch_to.default_content()
+            driver.switch_to.frame(i)
+            if len(driver.find_elements(By.XPATH, "//*[contains(text(), 'Borrower借贷人')]")) > 0:
+                print(f"✅ 在第 {i+1} 个框架中找到数据")
                 return True
-                
-        except Exception as e:
-            print(f"⚠️ 扫描框架 {i} 出错: {e}")
+        except:
             continue
             
-    # 如果都找不到，尝试能不能打印源代码看看
-    print("❌ 扫描结束，未找到包含数据的框架！")
+    print("❌ 当前页面未找到数据！(请确认是否在【详情页】)")
     return False
 
 def main():
@@ -105,14 +90,18 @@ def main():
         input("按回车键退出...")
         return
 
-    target_url = "http://10.200.18.179:8088/wcs/base/task/taskview.jsp"
-    driver.get(target_url)
+    # 1. 打开基础首页
+    driver.get(BASE_URL)
 
-    print("\n" + "="*50)
-    print("请手动登录系统...")
-    print("进入第一个任务详情页后，在控制台按【回车键】开始")
-    print("="*50 + "\n")
-    input() 
+    # 2. 【关键】等待用户手动操作
+    print("\n" + "="*60)
+    print("【请手动操作浏览器】")
+    print("1. 输入账号密码登录系统。")
+    print("2. 点击菜单，进入任务列表。")
+    print("3. 点击【第一个客户】，进入它的【详情页】（能看到电话号码的页面）。")
+    print("4. 确保页面加载完毕后，回到这里，按【回车键】开始自动抓取。")
+    print("="*60 + "\n")
+    input(">> 准备好后，按回车键开始: ") 
 
     count = 0
     is_finished = False
@@ -123,21 +112,20 @@ def main():
             
             # --- 步骤1：智能寻找并切入 iframe ---
             if not smart_switch_to_iframe(driver):
-                print("❌ 无法定位数据区域。请确认页面已加载完成，且处于详情页。")
-                # 暂停一下让用户看清
+                print("⚠️ 无法定位数据，重试中...")
                 time.sleep(3)
-                # 尝试刷新或者跳过
-                raise Exception("Iframe定位失败")
+                # 如果还是找不到，可能是页面还在加载，或者已经跳出去了
+                # 这里选择 continue 重试，或者你可以选择抛出异常
+                continue
 
-            # --- 步骤2：定位并操作数据 ---
             wait = WebDriverWait(driver, 10)
             
-            # 定位行
+            # --- 步骤2：定位行 ---
             borrower_tr = wait.until(EC.presence_of_element_located(
                 (By.XPATH, "//td[contains(text(), 'Borrower')]/..")
             ))
 
-            # 点击显示
+            # --- 步骤3：点击显示 ---
             try:
                 show_btn = borrower_tr.find_element(By.XPATH, ".//a[contains(text(), '显示')]")
                 driver.execute_script("arguments[0].click();", show_btn)
@@ -145,7 +133,7 @@ def main():
             except:
                 pass 
 
-            # 提取数据
+            # --- 步骤4：提取数据 ---
             cols = borrower_tr.find_elements(By.TAG_NAME, "td")
             phone_cell = cols[2]
             try:
@@ -164,27 +152,23 @@ def main():
             }
             save_to_excel(data)
 
-            # --- 步骤3：切回主页面操作按钮 ---
-            print("切换回主页面操作按钮...")
+            # --- 步骤5：切回主页面操作按钮 ---
             driver.switch_to.default_content()
 
             # 点击侧边栏 (side_btn)
+            # 你的源码显示 id="side_btn"
             try:
                 side_btn = driver.find_element(By.ID, "side_btn")
+                # 只有当它没展开时才点（简单判断一下位置，或者直接点也没事）
                 driver.execute_script("arguments[0].click();", side_btn)
                 time.sleep(1)
             except:
-                # 备用方案：如果ID找不到，用XPath找绿色块
-                try:
-                    side_btn = driver.find_element(By.XPATH, "//a[contains(@class, 'side_btn')]")
-                    driver.execute_script("arguments[0].click();", side_btn)
-                    time.sleep(1)
-                except:
-                    print("⚠️ 无法点击侧边栏，尝试直接点击跳过")
+                pass
 
             # 点击跳过
             print("点击跳转下一任务...")
             try:
+                # 你的源码显示 value="跳过&处理下一任务"
                 skip_btn = wait.until(EC.element_to_be_clickable(
                     (By.XPATH, "//input[contains(@value, '跳过') and contains(@value, '下一任务')]")
                 ))
@@ -195,7 +179,7 @@ def main():
             
             count += 1
             
-            # --- 步骤4：检测弹窗 ---
+            # --- 步骤6：检测弹窗 ---
             time.sleep(1.5) 
             try:
                 alert = driver.switch_to.alert
@@ -212,6 +196,7 @@ def main():
             except NoAlertPresentException:
                 pass 
 
+            # 等待新页面加载 (系统会自动跳转到新的长 URL)
             time.sleep(2)
 
         except UnexpectedAlertPresentException:
