@@ -7,7 +7,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import NoAlertPresentException, UnexpectedAlertPresentException, TimeoutException, NoSuchWindowException
+from selenium.common.exceptions import NoAlertPresentException, UnexpectedAlertPresentException, TimeoutException
 
 # --- 配置 ---
 EXCEL_FILE = '借贷人数据.xlsx'
@@ -48,39 +48,26 @@ def save_to_excel(data_dict):
     print(f"✅ 已保存: {data_dict.get('姓名')}")
 
 def ensure_focus_on_latest_window(driver):
-    """
-    【核心修复】强制将焦点切换到最后一个活着的窗口
-    防止因为关闭旧标签页导致 'no such window' 错误
-    """
+    """强制将焦点切换到最后一个窗口"""
     try:
-        # 获取所有当前存在的窗口句柄
         handles = driver.window_handles
-        if not handles:
-            print("❌ 所有窗口都已关闭！")
-            return False
-        
-        # 总是切换到最后一个（通常是详情页）
+        if not handles: return False
         driver.switch_to.window(handles[-1])
         return True
-    except Exception as e:
-        print(f"⚠️ 窗口切换异常: {e}")
+    except Exception:
         return False
 
 def smart_switch_to_iframe(driver):
     """智能寻找包含数据的 iframe"""
-    print("🔍 正在扫描当前页面寻找数据...")
+    print("🔍 正在扫描数据框架...")
+    driver.switch_to.default_content()
     
-    try:
-        driver.switch_to.default_content()
-    except NoSuchWindowException:
-        # 如果在这里报错，说明焦点所在的窗口没了，赶紧救场
-        ensure_focus_on_latest_window(driver)
-        driver.switch_to.default_content()
-
     # 1. 优先尝试 ID (frmcaseMainInfo)
     try:
         driver.switch_to.frame("frmcaseMainInfo")
-        if len(driver.find_elements(By.XPATH, "//*[contains(text(), 'Borrower借贷人')]")) > 0:
+        # 【关键】检查里面有没有我们需要的特定 ID 元素 phoneRole
+        # 只有找到了 phoneRole，才说明我们真的进到了电话信息表格里
+        if len(driver.find_elements(By.XPATH, "//*[contains(@id, 'phoneRole')]")) > 0:
             print("✅ 已切入数据框架 (frmcaseMainInfo)")
             return True
         driver.switch_to.default_content() 
@@ -93,13 +80,14 @@ def smart_switch_to_iframe(driver):
         try:
             driver.switch_to.default_content()
             driver.switch_to.frame(i)
-            if len(driver.find_elements(By.XPATH, "//*[contains(text(), 'Borrower借贷人')]")) > 0:
+            # 同样检查 phoneRole
+            if len(driver.find_elements(By.XPATH, "//*[contains(@id, 'phoneRole')]")) > 0:
                 print(f"✅ 在第 {i+1} 个框架中找到数据")
                 return True
         except:
             continue
             
-    print("❌ 当前页面未找到数据！")
+    print("❌ 当前页面未找到'电话信息'表格！")
     return False
 
 def main():
@@ -115,12 +103,11 @@ def main():
     print("\n" + "="*60)
     print("【请手动操作】")
     print("1. 登录系统。")
-    print("2. 进入详情页（即使你把旧窗口关了也没事）。")
+    print("2. 进入详情页（确保能看到电话信息表格）。")
     print("3. 回到这里，按【回车键】开始。")
     print("="*60 + "\n")
     input(">> 准备好后，按回车键开始: ") 
 
-    # 启动前先校准一次窗口
     ensure_focus_on_latest_window(driver)
 
     count = 0
@@ -130,9 +117,7 @@ def main():
         try:
             print(f"\n>> 正在处理第 {count + 1} 个任务...")
             
-            # 每次循环开始，都强制校准窗口焦点
             if not ensure_focus_on_latest_window(driver):
-                print("❌ 无法找到浏览器窗口，程序退出。")
                 break
 
             # 1. 找 iframe
@@ -143,10 +128,15 @@ def main():
 
             wait = WebDriverWait(driver, 10)
             
-            # 2. 定位行
-            borrower_tr = wait.until(EC.presence_of_element_located(
-                (By.XPATH, "//td[contains(text(), 'Borrower')]/..")
-            ))
+            # 2. 【精确修正】定位行
+            # 只找包含 Borrower 且 ID 包含 phoneRole 的单元格
+            try:
+                borrower_tr = wait.until(EC.presence_of_element_located(
+                    (By.XPATH, "//td[contains(text(), 'Borrower') and contains(@id, 'phoneRole')]/..")
+                ))
+            except TimeoutException:
+                print("❌ 找不到 'Borrower借贷人' 行，跳过本条...")
+                raise Exception("数据行未找到")
 
             # 3. 点击显示
             try:
@@ -156,24 +146,29 @@ def main():
             except:
                 pass 
 
-            # 4. 提取数据
+            # 4. 【安全提取】提取数据
             cols = borrower_tr.find_elements(By.TAG_NAME, "td")
-            phone_cell = cols[2]
-            try:
-                phone_text = phone_cell.find_element(By.XPATH, ".//a[contains(@id, 'phoneValue')]").text
-            except:
-                phone_text = phone_cell.text.replace("显示", "").strip()
+            
+            if len(cols) >= 7:
+                # 获取手机号
+                phone_cell = cols[2]
+                try:
+                    phone_text = phone_cell.find_element(By.XPATH, ".//a[contains(@id, 'phoneValue')]").text
+                except:
+                    phone_text = phone_cell.text.replace("显示", "").strip()
 
-            data = {
-                "姓名": cols[0].text,
-                "关系": cols[1].text,
-                "电话号码": phone_text,
-                "号码来源": cols[3].text,
-                "电话类型": cols[4].text,
-                "是否有效": cols[5].text,
-                "备注": cols[6].text
-            }
-            save_to_excel(data)
+                data = {
+                    "姓名": cols[0].text,
+                    "关系": cols[1].text,
+                    "电话号码": phone_text,
+                    "号码来源": cols[3].text,
+                    "电话类型": cols[4].text,
+                    "是否有效": cols[5].text,
+                    "备注": cols[6].text
+                }
+                save_to_excel(data)
+            else:
+                print(f"⚠️ 警告：该行数据列数不足 ({len(cols)}列)，无法提取完整信息！")
 
             # 5. 切回主页面操作按钮
             driver.switch_to.default_content()
