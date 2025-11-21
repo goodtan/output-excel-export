@@ -17,10 +17,11 @@ def get_browser():
     options = webdriver.ChromeOptions()
     options.add_argument('--start-maximized')
     options.add_argument('--ignore-certificate-errors')
+    # 禁用自动化控制条，防止被检测
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
 
-    # 手动寻找本地的 chromedriver.exe
+    # 获取当前目录下的 chromedriver.exe
     if getattr(sys, 'frozen', False):
         base_path = os.path.dirname(sys.executable)
     else:
@@ -30,7 +31,7 @@ def get_browser():
     print(f"正在加载驱动: {driver_path}")
 
     if not os.path.exists(driver_path):
-        print("❌ 错误：找不到 chromedriver.exe")
+        print("❌ 错误：找不到 chromedriver.exe，请确保它和脚本在同一目录下！")
         input("按回车键退出...")
         sys.exit(1)
 
@@ -48,33 +49,6 @@ def save_to_excel(data_dict):
         df_all.to_excel(EXCEL_FILE, index=False)
     print(f"✅ 已保存: {data_dict.get('姓名')}")
 
-def switch_to_content_iframe(driver):
-    """
-    【核心修复】精准切换到 ID 为 frmcaseMainInfo 的 iframe
-    """
-    try:
-        # 1. 先回到最外层
-        driver.switch_to.default_content()
-        
-        # 2. 等待并切换到指定的 iframe
-        # 你的截图显示 iframe 的 id="frmcaseMainInfo"
-        wait = WebDriverWait(driver, 5) # 给5秒时间找这个框架
-        
-        print("🔍 正在寻找并切换到数据框架 (frmcaseMainInfo)...")
-        wait.until(EC.frame_to_be_available_and_switch_to_it((By.ID, "frmcaseMainInfo")))
-        
-        print("✅ 已成功进入数据框架内部")
-        return True
-
-    except TimeoutException:
-        print("⚠️ 警告：找不到 ID 为 'frmcaseMainInfo' 的框架！")
-        # 备用方案：如果是嵌套结构，有时候需要先切父框架再切子框架
-        # 但通常 ID 定位是最准的。如果这里报错，可能在错误的页面。
-        return False
-    except Exception as e:
-        print(f"⚠️ 切换框架失败: {e}")
-        return False
-
 def main():
     try:
         driver = get_browser()
@@ -83,11 +57,11 @@ def main():
         input("按回车键退出...")
         return
 
+    # 你的登录地址
     target_url = "http://10.200.18.179:8088/wcs/base/task/taskview.jsp"
     driver.get(target_url)
 
     print("\n" + "="*50)
-    print("已启动 Google Chrome...")
     print("请手动登录系统...")
     print("进入第一个任务详情页后，在控制台按【回车键】开始")
     print("="*50 + "\n")
@@ -100,38 +74,41 @@ def main():
         try:
             print(f"\n>> 正在处理第 {count + 1} 个任务...")
             
-            # --- 步骤1：切入 iframe ---
-            if not switch_to_content_iframe(driver):
-                print("❌ 无法进入数据区域，脚本暂停。请确认你是否在任务详情页？")
-                # 可以在这里加个 input 暂停，方便你手动调整页面
-                # input("调整好页面后按回车继续...") 
-                # continue 
+            # ==========================================
+            # 步骤 1: 进入 iframe 抓取数据
+            # ==========================================
+            # 你的HTML显示iframe的ID是 frmcaseMainInfo，我们直接切进去
+            driver.switch_to.default_content() # 确保在最外层
             
             wait = WebDriverWait(driver, 10)
-            
-            # --- 步骤2：定位数据行 ---
             try:
-                # 截图显示 td 的 id 包含 phoneRole，我们也可以利用这个特征
-                # 或者继续用文本定位，这里加了重试机制
+                # 显式等待 iframe 出现并切入
+                wait.until(EC.frame_to_be_available_and_switch_to_it((By.ID, "frmcaseMainInfo")))
+            except TimeoutException:
+                print("❌ 找不到数据框架 (frmcaseMainInfo)，请确认是否在详情页？")
+                raise
+
+            # 定位 'Borrower借贷人' 行
+            try:
                 borrower_tr = wait.until(EC.presence_of_element_located(
-                    (By.XPATH, "//td[contains(text(), 'Borrower') or contains(@id, 'phoneRole')]/..")
+                    (By.XPATH, "//td[contains(text(), 'Borrower')]/..")
                 ))
             except TimeoutException:
-                print("❌ 在当前框架内找不到 'Borrower借贷人' 行！")
-                # 打印一点页面源码来看看是不是切错了
-                # print(driver.page_source[:500])
-                raise Exception("元素定位超时")
+                print("❌ 找不到 'Borrower借贷人' 行，跳过此步骤...")
+                # 这里如果不抛出异常，下面的代码会报错，所以抛出重试
+                raise Exception("数据行未找到")
 
-            # --- 步骤3：点击显示 ---
+            # 点击“显示”
             try:
                 show_btn = borrower_tr.find_element(By.XPATH, ".//a[contains(text(), '显示')]")
                 driver.execute_script("arguments[0].click();", show_btn)
-                time.sleep(1) 
+                time.sleep(0.8) 
             except:
                 pass 
 
-            # --- 步骤4：提取数据 ---
+            # 提取数据
             cols = borrower_tr.find_elements(By.TAG_NAME, "td")
+            # 获取手机号 (id包含 phoneValue)
             phone_cell = cols[2]
             try:
                 phone_text = phone_cell.find_element(By.XPATH, ".//a[contains(@id, 'phoneValue')]").text
@@ -149,21 +126,24 @@ def main():
             }
             save_to_excel(data)
 
-            # --- 步骤5：切回主文档点击跳过 ---
-            # 注意！“催记”侧边栏和“跳过”按钮通常在 iframe 外面（主页面）！
-            # 所以提取完数据后，必须切出来
-            print("正在切换回主页面进行操作...")
+            # ==========================================
+            # 步骤 2: 切回主页面 点击按钮
+            # ==========================================
+            # 【关键】按钮在 iframe 外面，必须切出来！
             driver.switch_to.default_content()
 
-            # 点击催记
+            # 点击侧边栏开关 (id="side_btn")
+            print("正在打开催记面板...")
             try:
-                cuiji_tab = driver.find_element(By.XPATH, "//*[contains(text(),'催') and contains(text(),'记')]")
-                driver.execute_script("arguments[0].click();", cuiji_tab)
-                time.sleep(1) 
-            except:
-                pass # 可能不需要点，或者已经在外面了
+                # 根据HTML，按钮ID是 side_btn
+                side_btn = wait.until(EC.element_to_be_clickable((By.ID, "side_btn")))
+                driver.execute_script("arguments[0].click();", side_btn)
+                time.sleep(1) # 等待滑出动画
+            except Exception as e:
+                print(f"⚠️ 点击侧边栏失败: {e}")
 
-            # 点击跳过
+            # 点击跳过按钮
+            # 根据HTML，value="跳过&处理下一任务"
             print("点击跳转下一任务...")
             try:
                 skip_btn = wait.until(EC.element_to_be_clickable(
@@ -171,18 +151,22 @@ def main():
                 ))
                 driver.execute_script("arguments[0].click();", skip_btn)
             except TimeoutException:
-                print("❌ 找不到跳过按钮！请确认催记面板是否展开？")
+                print("❌ 找不到跳过按钮！请确认侧边栏是否已展开？")
                 raise
             
             count += 1
             
-            # --- 步骤6：检测弹窗 ---
+            # ==========================================
+            # 步骤 3: 检测完成弹窗
+            # ==========================================
             time.sleep(1.5) 
             try:
                 alert = driver.switch_to.alert
                 alert_text = alert.text
+                # 包含 "处理完" 或 "列表" 即视为结束
                 if "处理完" in alert_text or "列表" in alert_text:
                     print("\n" + "★"*30)
+                    print(f"🎉 检测到弹窗: [{alert_text}]")
                     print("🎉 任务全部完成！")
                     print("★"*30)
                     alert.accept()
@@ -193,6 +177,7 @@ def main():
             except NoAlertPresentException:
                 pass 
 
+            # 等待新页面加载
             time.sleep(2)
 
         except UnexpectedAlertPresentException:
@@ -204,7 +189,7 @@ def main():
 
         except Exception as e:
             print(f"❌ 发生错误: {e}")
-            time.sleep(5)
+            time.sleep(3)
             
     print(f"\n程序退出。共保存 {count} 条数据。")
     input("按回车键关闭窗口...")
