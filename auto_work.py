@@ -13,25 +13,22 @@ from selenium.common.exceptions import NoAlertPresentException, UnexpectedAlertP
 EXCEL_FILE = '借贷人数据.xlsx'
 
 def get_browser():
-    """启动 Google Chrome 浏览器 (离线版)"""
+    """启动 Google Chrome 浏览器"""
     options = webdriver.ChromeOptions()
     options.add_argument('--start-maximized')
     options.add_argument('--ignore-certificate-errors')
-    # 禁用自动化控制条，防止被检测
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
 
-    # 获取当前目录下的 chromedriver.exe
     if getattr(sys, 'frozen', False):
         base_path = os.path.dirname(sys.executable)
     else:
         base_path = os.path.dirname(os.path.abspath(__file__))
         
     driver_path = os.path.join(base_path, "chromedriver.exe")
-    print(f"正在加载驱动: {driver_path}")
-
+    
     if not os.path.exists(driver_path):
-        print("❌ 错误：找不到 chromedriver.exe，请确保它和脚本在同一目录下！")
+        print("❌ 错误：找不到 chromedriver.exe")
         input("按回车键退出...")
         sys.exit(1)
 
@@ -49,6 +46,57 @@ def save_to_excel(data_dict):
         df_all.to_excel(EXCEL_FILE, index=False)
     print(f"✅ 已保存: {data_dict.get('姓名')}")
 
+def smart_switch_to_iframe(driver):
+    """
+    【核心黑科技】智能寻找包含数据的 iframe
+    不依赖 ID，而是挨个进去看有没有'Borrower借贷人'这几个字
+    """
+    print("🔍 正在扫描页面框架，寻找数据...")
+    
+    # 1. 先切回最外层
+    driver.switch_to.default_content()
+    
+    # 检查最外层有没有
+    if len(driver.find_elements(By.XPATH, "//*[contains(text(), 'Borrower借贷人')]")) > 0:
+        print("✅ 数据就在最外层，无需切换")
+        return True
+
+    # 2. 尝试根据 ID 直接切（为了兼容性保留这步）
+    try:
+        driver.switch_to.frame("frmcaseMainInfo")
+        # 检查切进去对不对
+        if len(driver.find_elements(By.XPATH, "//*[contains(text(), 'Borrower借贷人')]")) > 0:
+            print("✅ 通过 ID 锁定数据框架")
+            return True
+        driver.switch_to.default_content() # 不对就退出来
+    except:
+        pass
+
+    # 3. 暴力遍历所有 iframe
+    iframe_list = driver.find_elements(By.TAG_NAME, "iframe")
+    print(f"ℹ️ 发现 {len(iframe_list)} 个潜在框架，正在逐一排查...")
+    
+    for i in range(len(iframe_list)):
+        try:
+            driver.switch_to.default_content() # 每次都从头开始
+            driver.switch_to.frame(i) # 切入第 i 个框架
+            
+            # 看看有没有我们要找的文字
+            # 这里用 find_elements 如果找不到不会报错只会返回空列表
+            elements = driver.find_elements(By.XPATH, "//*[contains(text(), 'Borrower借贷人')]")
+            
+            if len(elements) > 0:
+                print(f"✅ 成功在第 {i+1} 个框架中找到数据！")
+                return True
+                
+        except Exception as e:
+            print(f"⚠️ 扫描框架 {i} 出错: {e}")
+            continue
+            
+    # 如果都找不到，尝试能不能打印源代码看看
+    print("❌ 扫描结束，未找到包含数据的框架！")
+    return False
+
 def main():
     try:
         driver = get_browser()
@@ -57,7 +105,6 @@ def main():
         input("按回车键退出...")
         return
 
-    # 你的登录地址
     target_url = "http://10.200.18.179:8088/wcs/base/task/taskview.jsp"
     driver.get(target_url)
 
@@ -74,31 +121,23 @@ def main():
         try:
             print(f"\n>> 正在处理第 {count + 1} 个任务...")
             
-            # ==========================================
-            # 步骤 1: 进入 iframe 抓取数据
-            # ==========================================
-            # 你的HTML显示iframe的ID是 frmcaseMainInfo，我们直接切进去
-            driver.switch_to.default_content() # 确保在最外层
-            
+            # --- 步骤1：智能寻找并切入 iframe ---
+            if not smart_switch_to_iframe(driver):
+                print("❌ 无法定位数据区域。请确认页面已加载完成，且处于详情页。")
+                # 暂停一下让用户看清
+                time.sleep(3)
+                # 尝试刷新或者跳过
+                raise Exception("Iframe定位失败")
+
+            # --- 步骤2：定位并操作数据 ---
             wait = WebDriverWait(driver, 10)
-            try:
-                # 显式等待 iframe 出现并切入
-                wait.until(EC.frame_to_be_available_and_switch_to_it((By.ID, "frmcaseMainInfo")))
-            except TimeoutException:
-                print("❌ 找不到数据框架 (frmcaseMainInfo)，请确认是否在详情页？")
-                raise
+            
+            # 定位行
+            borrower_tr = wait.until(EC.presence_of_element_located(
+                (By.XPATH, "//td[contains(text(), 'Borrower')]/..")
+            ))
 
-            # 定位 'Borrower借贷人' 行
-            try:
-                borrower_tr = wait.until(EC.presence_of_element_located(
-                    (By.XPATH, "//td[contains(text(), 'Borrower')]/..")
-                ))
-            except TimeoutException:
-                print("❌ 找不到 'Borrower借贷人' 行，跳过此步骤...")
-                # 这里如果不抛出异常，下面的代码会报错，所以抛出重试
-                raise Exception("数据行未找到")
-
-            # 点击“显示”
+            # 点击显示
             try:
                 show_btn = borrower_tr.find_element(By.XPATH, ".//a[contains(text(), '显示')]")
                 driver.execute_script("arguments[0].click();", show_btn)
@@ -108,7 +147,6 @@ def main():
 
             # 提取数据
             cols = borrower_tr.find_elements(By.TAG_NAME, "td")
-            # 获取手机号 (id包含 phoneValue)
             phone_cell = cols[2]
             try:
                 phone_text = phone_cell.find_element(By.XPATH, ".//a[contains(@id, 'phoneValue')]").text
@@ -126,24 +164,25 @@ def main():
             }
             save_to_excel(data)
 
-            # ==========================================
-            # 步骤 2: 切回主页面 点击按钮
-            # ==========================================
-            # 【关键】按钮在 iframe 外面，必须切出来！
+            # --- 步骤3：切回主页面操作按钮 ---
+            print("切换回主页面操作按钮...")
             driver.switch_to.default_content()
 
-            # 点击侧边栏开关 (id="side_btn")
-            print("正在打开催记面板...")
+            # 点击侧边栏 (side_btn)
             try:
-                # 根据HTML，按钮ID是 side_btn
-                side_btn = wait.until(EC.element_to_be_clickable((By.ID, "side_btn")))
+                side_btn = driver.find_element(By.ID, "side_btn")
                 driver.execute_script("arguments[0].click();", side_btn)
-                time.sleep(1) # 等待滑出动画
-            except Exception as e:
-                print(f"⚠️ 点击侧边栏失败: {e}")
+                time.sleep(1)
+            except:
+                # 备用方案：如果ID找不到，用XPath找绿色块
+                try:
+                    side_btn = driver.find_element(By.XPATH, "//a[contains(@class, 'side_btn')]")
+                    driver.execute_script("arguments[0].click();", side_btn)
+                    time.sleep(1)
+                except:
+                    print("⚠️ 无法点击侧边栏，尝试直接点击跳过")
 
-            # 点击跳过按钮
-            # 根据HTML，value="跳过&处理下一任务"
+            # 点击跳过
             print("点击跳转下一任务...")
             try:
                 skip_btn = wait.until(EC.element_to_be_clickable(
@@ -151,22 +190,18 @@ def main():
                 ))
                 driver.execute_script("arguments[0].click();", skip_btn)
             except TimeoutException:
-                print("❌ 找不到跳过按钮！请确认侧边栏是否已展开？")
+                print("❌ 找不到跳过按钮！")
                 raise
             
             count += 1
             
-            # ==========================================
-            # 步骤 3: 检测完成弹窗
-            # ==========================================
+            # --- 步骤4：检测弹窗 ---
             time.sleep(1.5) 
             try:
                 alert = driver.switch_to.alert
                 alert_text = alert.text
-                # 包含 "处理完" 或 "列表" 即视为结束
                 if "处理完" in alert_text or "列表" in alert_text:
                     print("\n" + "★"*30)
-                    print(f"🎉 检测到弹窗: [{alert_text}]")
                     print("🎉 任务全部完成！")
                     print("★"*30)
                     alert.accept()
@@ -177,7 +212,6 @@ def main():
             except NoAlertPresentException:
                 pass 
 
-            # 等待新页面加载
             time.sleep(2)
 
         except UnexpectedAlertPresentException:
@@ -189,7 +223,7 @@ def main():
 
         except Exception as e:
             print(f"❌ 发生错误: {e}")
-            time.sleep(3)
+            time.sleep(5)
             
     print(f"\n程序退出。共保存 {count} 条数据。")
     input("按回车键关闭窗口...")
