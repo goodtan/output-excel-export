@@ -17,13 +17,16 @@ jobs:
         with:
           python-version: '3.11'
 
+      # 【关键修改】这里必须把代码里用到的所有库都装上
       - name: Install dependencies
         run: |
-          pip install pyinstaller pandas requests openpyxl
+          python -m pip install --upgrade pip
+          pip install pyinstaller pandas openpyxl selenium webdriver-manager
 
       - name: Build EXE
+        # 使用 --clean 清理缓存，防止旧数据干扰
         run: |
-          pyinstaller --onefile "auto_work.py" --name auto_work
+          pyinstaller --onefile --clean --name auto_work "auto_work.py"
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
