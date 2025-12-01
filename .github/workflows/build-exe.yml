@@ -1,4 +1,4 @@
-name: Build EXE
+name: Build Customer List Exporter
 
 on:
   push:
@@ -17,19 +17,20 @@ jobs:
         with:
           python-version: '3.11'
 
-      # 【关键修改】这里必须把代码里用到的所有库都装上
+      # 【关键修改 1】安装 requests (你的代码用了这个)，删除了 selenium (你的代码没用)
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller pandas openpyxl selenium webdriver-manager
+          pip install pyinstaller pandas openpyxl requests
 
+      # 【关键修改 2】文件名改成现在的脚本名，并指定生成的 exe 名字
       - name: Build EXE
-        # 使用 --clean 清理缓存，防止旧数据干扰
         run: |
-          pyinstaller --onefile --clean --name auto_work "10.1output.py"
+          pyinstaller --onefile --clean --name customer_exporter "request_customer_list_to_excel.py"
 
+      # 【关键修改 3】上传路径要和上面生成的 exe 名字对应
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
-          name: auto_work
-          path: dist/10.1output.exe
+          name: customer_exporter_exe
+          path: dist/customer_exporter.exe
