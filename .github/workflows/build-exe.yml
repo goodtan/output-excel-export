@@ -34,3 +34,4 @@ jobs:
         with:
           name: customer_exporter_exe
           path: dist/customer_exporter.exe
+
