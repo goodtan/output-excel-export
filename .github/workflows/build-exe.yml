@@ -32,4 +32,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: auto_work
-          path: dist/10.1output.py.exe
+          path: dist/10.1output.exe
