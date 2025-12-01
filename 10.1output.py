@@ -1,487 +1,105 @@
-# # request_customer_list_to_excel.py
-# import requests
-# import urllib3
-# import pandas as pd
-# import os
-# import sys
-# import datetime
-
-# urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-
-# def parse_cookie_string(cookie_str):
-#     cookies = {}
-#     if not cookie_str:
-#         return cookies
-#     for part in cookie_str.split(";"):
-#         part = part.strip()
-#         if not part:
-#             continue
-#         if "=" in part:
-#             k, v = part.split("=", 1)
-#             cookies[k.strip()] = v.strip()
-#         else:
-#             cookies[part] = ""
-#     return cookies
-
-
-# def input_nonempty(prompt):
-#     return input(prompt).strip()
-
-
-# def main():
-#     print("向 https://120.55.38.129:9998/api/blade-system/baseCaseNew/customerList 发起请求并导出 Excel")
-
-#     # 输入认证信息
-#     authorization = input_nonempty("Authorization header (例如：Basic ...)：")
-#     blade_auth = input_nonempty("blade-Auth header (例如：bearer ...)：")
-#     saber_access_token = input_nonempty("saber-access-token cookie 值：")
-#     saber_refresh_token = input_nonempty("saber-refresh-token cookie 值：")
-#     extra_cookies = input("额外 cookie（可选，例如 JG_...=value; other=val）：").strip()
-
-#     start_page = int(input("请输入起始页码：").strip() or "1")
-#     end_page = int(input("请输入结束页码：").strip() or str(start_page))
-
-#     headers = {
-#         "Accept": "application/json, text/plain, */*",
-#         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
-#         "Connection": "keep-alive",
-#         "Content-Type": "application/json;charset=UTF-8",
-#         "Origin": "https://120.55.38.129:9998",
-#         "Referer": "https://120.55.38.129:9998/",
-#         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0",
-#     }
-#     if authorization:
-#         headers["Authorization"] = authorization
-#     if blade_auth:
-#         headers["blade-Auth"] = blade_auth
-
-#     cookies = {}
-#     if saber_access_token:
-#         cookies["saber-access-token"] = saber_access_token
-#     if saber_refresh_token:
-#         cookies["saber-refresh-token"] = saber_refresh_token
-#     if extra_cookies:
-#         cookies.update(parse_cookie_string(extra_cookies))
-
-#     url = "https://120.55.38.129:9998/api/blade-system/baseCaseNew/customerList"
-
-#     all_records = []
-
-#     for page in range(start_page, end_page + 1):
-#         payload = {
-#             "current": page,
-#             "size": 20,
-#             "customerId": "",
-#             "customerData": "",
-#             "borrowerName": "",
-#             "idNo": "",
-#             "projectTypeList": [],
-#             "originalCreditor": "",
-#             "returnStatus": "",
-#             "flagStatus": "",
-#             "contractNo": "",
-#             "sumSurplusPrincipal": "",
-#             "sumSurplusLoan": "",
-#             "phone": "",
-#             "tenantId": "831444",
-#             "deptCompanyId": "",
-#             "salesmanName": "",
-#             "unusedDays": "",
-#             "commissionDays": "",
-#             "paySchedule": "",
-#             "surplusLoanLeft": "",
-#             "surplusLoanRight": "",
-#             "surplusPrincipalLeft": "",
-#             "surplusPrincipalRight": "",
-#             "overdueDaysLeft": "",
-#             "overdueDaysRight": "",
-#             "sumSurplusLoanLeft": "",
-#             "sumSurplusLoanRight": "",
-#             "sumSurplusPrincipalLeft": "",
-#             "sumSurplusPrincipalRight": "",
-#             "followTime": "",
-#             "payedAmount": "",
-#             "commissionDaysLeft": "",
-#             "commissionDaysRight": "",
-#             "payScheduleLeft": "",
-#             "payScheduleRight": ""
-#         }
-
-#         print(f"请求第 {page} 页 ...")
-#         try:
-#             resp = requests.post(url, headers=headers, cookies=cookies, json=payload,
-#                                  verify=False, timeout=30)
-#             if resp.status_code != 200:
-#                 print(f"第 {page} 页请求失败，HTTP {resp.status_code}")
-#                 continue
-#             data = resp.json()
-#             records = data.get("data", {}).get("records", [])
-#             print(f"第 {page} 页获取到 {len(records)} 条记录")
-#             all_records.extend(records)
-#         except Exception as e:
-#             print(f"第 {page} 页请求异常: {e}")
-
-#     if not all_records:
-#         print("没有获取到任何数据，结束。")
-#         input("按回车键退出...")
-#         return
-
-#     # 获取输出目录（脚本或 exe 所在目录）
-#     if getattr(sys, 'frozen', False):
-#         base_dir = os.path.dirname(sys.executable)
-#     else:
-#         base_dir = os.path.dirname(os.path.abspath(__file__))
-
-#     # 带时间戳的文件名
-#     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-#     output_file = os.path.join(base_dir, f"customerList_{timestamp}.xlsx")
-
-#     df = pd.DataFrame(all_records)
-#     df.to_excel(output_file, index=False)
-#     print(f"成功导出 {len(all_records)} 条记录到 {output_file}")
-
-#     input("任务完成，按回车键退出...")
-
-
-# if __name__ == "__main__":
-#     main()
-
-
-
-
-# # request_customer_list_to_excel_fixed.py
-# import requests
-# import urllib3
-# import pandas as pd
-# import os
-# import sys
-# import datetime
-# import json
-
-# urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-# def main():
-#     print("向 https://120.55.38.129:9998/api/blade-system/baseCaseNew/customerList 发起请求并导出 Excel")
-
-#     # === 输入认证信息 ===
-#     authorization = input("Authorization (例如 Basic ...): ").strip()
-#     blade_auth = input("blade-Auth (例如 bearer ...): ").strip()
-#     saber_access_token = input("saber-access-token cookie 值: ").strip()
-#     saber_refresh_token = input("saber-refresh-token cookie 值: ").strip()
-#     jg_cookie = input("JG_ 开头 cookie 值 (例如 JG_xxx_PV=...|...): ").strip()
-
-#     start_page = int(input("起始页码: ").strip() or "1")
-#     end_page = int(input("结束页码: ").strip() or str(start_page))
-
-#     url = "https://120.55.38.129:9998/api/blade-system/baseCaseNew/customerList"
-
-#     # === Headers，完全模拟浏览器 ===
-#     headers = {
-#         "Accept": "application/json, text/plain, */*",
-#         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
-#         "Authorization": authorization,
-#         "blade-Auth": blade_auth,
-#         "Connection": "keep-alive",
-#         "Content-Type": "application/json;charset=UTF-8",
-#         "Origin": "https://120.55.38.129:9998",
-#         "Referer": "https://120.55.38.129:9998/",
-#         "Sec-Fetch-Dest": "empty",
-#         "Sec-Fetch-Mode": "cors",
-#         "Sec-Fetch-Site": "same-origin",
-#         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0",
-#         "sec-ch-ua": '"Microsoft Edge";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
-#         "sec-ch-ua-mobile": "?0",
-#         "sec-ch-ua-platform": '"Windows"',
-#     }
-
-#     # === Cookies，与 cURL 一致 ===
-#     cookies = {
-#         "saber-access-token": saber_access_token,
-#         "saber-refresh-token": saber_refresh_token,
-#     }
-#     if jg_cookie:
-#         # 自动判断 cookie 名（例如 "JG_xxx_PV"）
-#         if "=" in jg_cookie:
-#             name, value = jg_cookie.split("=", 1)
-#             cookies[name.strip()] = value.strip()
-
-#     all_records = []
-
-#     for page in range(start_page, end_page + 1):
-#         payload = {
-#             "current": page,
-#             "size": 20,
-#             "province": "",
-#             "city": "",
-#             "area": "",
-#             "customerId": "",
-#             "customerData": "",
-#             "borrowerName": "",
-#             "idNo": "",
-#             "projectTypeList": [],
-#             "originalCreditor": "",
-#             "returnStatus": "",
-#             "flagStatus": "",
-#             "contractNo": "",
-#             "sumSurplusPrincipal": "",
-#             "sumSurplusLoan": "",
-#             "phone": "",
-#             "deptCompanyId": "",
-#             "salesmanName": "",
-#             "unusedDays": "",
-#             "commissionDays": "",
-#             "paySchedule": "",
-#             "tenantId": "831444",
-#             "surplusLoanLeft": "",
-#             "surplusLoanRight": "",
-#             "surplusPrincipalLeft": "",
-#             "surplusPrincipalRight": "",
-#             "identyStatus": "",
-#             "payScheduleLeft": "",
-#             "payScheduleRight": "",
-#         }
-
-#         print(f"请求第 {page} 页 ...")
-#         try:
-#             resp = requests.post(url, headers=headers, cookies=cookies, json=payload, verify=False, timeout=30)
-#             if resp.status_code == 401:
-#                 print(f"⚠️ 第 {page} 页返回 401（认证失败）")
-#                 print(resp.text)
-#                 continue
-#             if resp.status_code != 200:
-#                 print(f"⚠️ 第 {page} 页 HTTP {resp.status_code}")
-#                 continue
-
-#             data = resp.json()
-#             records = data.get("data", {}).get("records", [])
-#             print(f"✅ 第 {page} 页获取 {len(records)} 条记录")
-#             all_records.extend(records)
-#         except Exception as e:
-#             print(f"❌ 第 {page} 页请求异常: {e}")
-
-#     if not all_records:
-#         print("❗未获取到任何数据。")
-#         input("按回车键退出...")
-#         return
-
-#     # === 保存 Excel ===
-#     base_dir = os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__))
-#     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-#     output_file = os.path.join(base_dir, f"customerList_{timestamp}.xlsx")
-
-#     pd.DataFrame(all_records).to_excel(output_file, index=False)
-#     print(f"✅ 成功导出 {len(all_records)} 条记录到 {output_file}")
-#     input("任务完成，按回车键退出...")
-
-# if __name__ == "__main__":
-#     main()
-
-
-# request_customer_list_to_excel_fixed_v2.py
-# import requests
-# import urllib3
-# import pandas as pd
-# import os
-# import sys
-# import datetime
-# import json
-# import time
-
-# urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-
-# def main():
-#     print("🚀 向 https://120.55.38.129:9998/api/blade-system/baseCaseNew/customerList 发起请求并导出 Excel\n")
-
-#     # === 输入认证信息 ===
-#     authorization = input("Authorization (例如 Basic ...): ").strip()
-#     blade_auth = input("blade-Auth (例如 bearer ...): ").strip()
-#     saber_access_token = input("saber-access-token cookie 值: ").strip()
-#     saber_refresh_token = input("saber-refresh-token cookie 值: ").strip()
-#     jg_cookie = input("JG_ 开头 cookie 值 (例如 JG_xxx_PV=...|...): ").strip()
-
-#     start_page = int(input("起始页码: ").strip() or "1")
-#     end_page = int(input("结束页码: ").strip() or str(start_page))
-
-#     url = "https://120.55.38.129:9998/api/blade-system/baseCaseNew/customerList"
-
-#     # === Headers，完全模拟浏览器 ===
-#     headers = {
-#         "Accept": "application/json, text/plain, */*",
-#         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
-#         "Authorization": authorization,
-#         "blade-Auth": blade_auth,
-#         "Connection": "keep-alive",
-#         "Content-Type": "application/json;charset=UTF-8",
-#         "Origin": "https://120.55.38.129:9998",
-#         "Referer": "https://120.55.38.129:9998/",
-#         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0",
-#     }
-
-#     # === Cookies，与 cURL 一致 ===
-#     cookies = {
-#         "saber-access-token": saber_access_token,
-#         "saber-refresh-token": saber_refresh_token,
-#     }
-#     if jg_cookie:
-#         if "=" in jg_cookie:
-#             name, value = jg_cookie.split("=", 1)
-#             cookies[name.strip()] = value.strip()
-
-#     all_records = []
-
-#     # === 请求每一页 ===
-#     for page in range(start_page, end_page + 1):
-#         payload = {
-#             "current": page,
-#             "size": 20,
-#             "province": "",
-#             "city": "",
-#             "area": "",
-#             "customerId": "",
-#             "customerData": "",
-#             "borrowerName": "",
-#             "idNo": "",
-#             "projectTypeList": [],
-#             "originalCreditor": "",
-#             "returnStatus": "",
-#             "flagStatus": "",
-#             "contractNo": "",
-#             "sumSurplusPrincipal": "",
-#             "sumSurplusLoan": "",
-#             "phone": "",
-#             "deptCompanyId": "",
-#             "salesmanName": "",
-#             "unusedDays": "",
-#             "commissionDays": "",
-#             "paySchedule": "",
-#             "tenantId": "831444",
-#             "surplusLoanLeft": "",
-#             "surplusLoanRight": "",
-#             "surplusPrincipalLeft": "",
-#             "surplusPrincipalRight": "",
-#             "identyStatus": "",
-#             "payScheduleLeft": "",
-#             "payScheduleRight": "",
-#         }
-
-#         print(f"\n📄 请求第 {page} 页 ...")
-#         try:
-#             for attempt in range(3):  # 最多重试 3 次
-#                 resp = requests.post(url, headers=headers, cookies=cookies, json=payload, verify=False, timeout=30)
-#                 if resp.status_code == 200:
-#                     break
-#                 else:
-#                     print(f"⚠️ 尝试 {attempt + 1}/3 次失败，状态码：{resp.status_code}")
-#                     print(resp.text)
-#                     time.sleep(1)
-#             else:
-#                 print(f"❌ 第 {page} 页连续 3 次失败，跳过。")
-#                 continue
-
-#             try:
-#                 data = resp.json()
-#             except Exception:
-#                 print(f"⚠️ 第 {page} 页返回内容非 JSON：")
-#                 print(resp.text)
-#                 continue
-
-#             records = data.get("data", {}).get("records", [])
-#             print(f"✅ 第 {page} 页获取 {len(records)} 条记录")
-#             all_records.extend(records)
-
-#         except Exception as e:
-#             print(f"❌ 第 {page} 页请求异常: {e}")
-
-#     if not all_records:
-#         print("\n❗未获取到任何数据，请检查认证信息或接口参数。")
-#         input("按回车键退出...")
-#         return
-
-#     # === 保存 Excel ===
-#     base_dir = os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__))
-#     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-#     output_file = os.path.join(base_dir, f"customerList_{timestamp}.xlsx")
-
-#     try:
-#         df = pd.DataFrame(all_records)
-#         df.to_excel(output_file, index=False)
-#         print(f"\n🎉 成功导出 {len(all_records)} 条记录到：{output_file}")
-#     except Exception as e:
-#         print(f"❌ 导出 Excel 失败：{e}")
-
-#     input("\n任务完成，按回车键退出...")
-
-
-# if __name__ == "__main__":
-#     main()
-
-# request_customer_list_to_excel_fixed_v3.py
 import requests
 import urllib3
+import json
 import pandas as pd
 import os
-import sys
-import datetime
-import json
-import time
 
+# 禁用不安全请求警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+def parse_cookie_string(cookie_str):
+    """解析浏览器复制的 Raw Cookie 字符串为字典"""
+    cookies = {}
+    if not cookie_str:
+        return cookies
+    for part in cookie_str.split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" in part:
+            k, v = part.split("=", 1)
+            cookies[k.strip()] = v.strip()
+        else:
+            cookies[part] = ""
+    return cookies
+
+def read_file_content(filename):
+    """读取当前目录下文件的内容，如果文件不存在返回空字符串"""
+    if not os.path.exists(filename):
+        print(f"⚠️  警告: 未找到文件 [{filename}]，将跳过该参数。")
+        return ""
+    try:
+        with open(filename, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+            # 去掉可能存在的换行符或多余空格
+            return content.replace('\n', '').replace('\r', '').strip()
+    except Exception as e:
+        print(f"❌ 读取文件 [{filename}] 出错: {e}")
+        return ""
 
 def main():
-    print("🚀 向 https://120.55.38.129:9998/api/blade-system/baseCaseNew/customerList 发起请求并导出 Excel\n")
+    print("========================================================")
+    print("正在初始化... 准备从本地文件读取认证信息")
+    print("目标接口: https://120.55.38.129:9998/.../customerList")
+    print("========================================================")
 
-    # === 输入认证信息（自动补前缀） ===
-    authorization_raw = input("Authorization token（只输入 Basic 后面的内容）: ").strip()
-    blade_auth_raw = input("blade-Auth token（只输入 bearer 后面的内容）: ").strip()
-    saber_access_token = input("saber-access-token cookie 值: ").strip()
-    saber_refresh_token = input("saber-refresh-token cookie 值: ").strip()
-    jg_cookie = input("JG_ 开头 cookie 值 (例如 JG_xxx_PV=...|...): ").strip()
+    # 1. 从文件读取认证信息
+    # 文件名定义
+    file_authorization = "authorization.txt"
+    file_blade_auth = "blade_auth.txt"
+    file_cookies = "cookies.txt"
 
-    start_page = int(input("起始页码: ").strip() or "1")
-    end_page = int(input("结束页码: ").strip() or str(start_page))
+    print(f"正在读取 {file_authorization} ...")
+    authorization_val = read_file_content(file_authorization)
 
-    url = "https://120.55.38.129:9998/api/blade-system/baseCaseNew/customerList"
+    print(f"正在读取 {file_blade_auth} ...")
+    blade_auth_val = read_file_content(file_blade_auth)
 
-    # 自动加上前缀
-    authorization = f"Basic {authorization_raw}" if authorization_raw else ""
-    blade_auth = f"bearer {blade_auth_raw}" if blade_auth_raw else ""
+    print(f"正在读取 {file_cookies} ...")
+    cookie_str = read_file_content(file_cookies)
 
-    # === Headers，完全模拟浏览器 ===
+    # 简单检查
+    if not cookie_str:
+        print("\n❌ 错误: cookies.txt 内容为空或文件不存在，无法进行请求。")
+        input("按回车键退出...")
+        return
+
+    # 2. 手动输入页码（因为每次导出范围可能不同）
+    print("\n--------------------------------------------------------")
+    start_page_input = input("请输入起始页码 (默认 1): ").strip()
+    start_page = int(start_page_input) if start_page_input.isdigit() else 1
+
+    end_page_input = input(f"请输入结束页码 (默认 {start_page}): ").strip()
+    end_page = int(end_page_input) if end_page_input.isdigit() else start_page
+    print("--------------------------------------------------------\n")
+
+    # 3. 构造请求头
     headers = {
         "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
-        "Authorization": authorization,
-        "blade-Auth": blade_auth,
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         "Connection": "keep-alive",
         "Content-Type": "application/json;charset=UTF-8",
         "Origin": "https://120.55.38.129:9998",
         "Referer": "https://120.55.38.129:9998/",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     }
 
-    # === Cookies，与 cURL 一致 ===
-    cookies = {
-        "saber-access-token": saber_access_token,
-        "saber-refresh-token": saber_refresh_token,
-    }
-    if jg_cookie:
-        if "=" in jg_cookie:
-            name, value = jg_cookie.split("=", 1)
-            cookies[name.strip()] = value.strip()
+    if authorization_val:
+        headers["Authorization"] = authorization_val
+    if blade_auth_val:
+        headers["blade-Auth"] = blade_auth_val
 
+    # 4. 构造 Cookies
+    cookies = parse_cookie_string(cookie_str)
+
+    url = "https://120.55.38.129:9998/api/blade-system/baseCaseNew/customerList"
     all_records = []
 
-    # === 请求每一页 ===
+    # 5. 循环请求
     for page in range(start_page, end_page + 1):
         payload = {
             "current": page,
             "size": 20,
-            "province": "",
-            "city": "",
-            "area": "",
             "customerId": "",
             "customerData": "",
             "borrowerName": "",
@@ -494,71 +112,72 @@ def main():
             "sumSurplusPrincipal": "",
             "sumSurplusLoan": "",
             "phone": "",
+            "tenantId": "831444",
             "deptCompanyId": "",
             "salesmanName": "",
             "unusedDays": "",
             "commissionDays": "",
             "paySchedule": "",
-            "tenantId": "831444",
             "surplusLoanLeft": "",
             "surplusLoanRight": "",
             "surplusPrincipalLeft": "",
             "surplusPrincipalRight": "",
-            "identyStatus": "",
+            "overdueDaysLeft": "",
+            "overdueDaysRight": "",
+            "sumSurplusLoanLeft": "",
+            "sumSurplusLoanRight": "",
+            "sumSurplusPrincipalLeft": "",
+            "sumSurplusPrincipalRight": "",
+            "followTime": "",
+            "payedAmount": "",
+            "commissionDaysLeft": "",
+            "commissionDaysRight": "",
             "payScheduleLeft": "",
-            "payScheduleRight": "",
+            "payScheduleRight": ""
         }
 
-        print(f"\n📄 请求第 {page} 页 ...")
+        print(f"正在请求第 {page} 页 ...", end="")
         try:
-            for attempt in range(3):  # 最多重试 3 次
-                resp = requests.post(url, headers=headers, cookies=cookies, json=payload, verify=False, timeout=30)
-                if resp.status_code == 200:
-                    break
-                else:
-                    print(f"⚠️ 尝试 {attempt + 1}/3 次失败，状态码：{resp.status_code}")
-                    print(resp.text)
-                    time.sleep(1)
-            else:
-                print(f"❌ 第 {page} 页连续 3 次失败，跳过。")
-                continue
-
-            try:
+            resp = requests.post(url, headers=headers, cookies=cookies, json=payload,
+                                 verify=False, timeout=30)
+            
+            if resp.status_code == 200:
                 data = resp.json()
-            except Exception:
-                print(f"⚠️ 第 {page} 页返回内容非 JSON：")
-                print(resp.text)
-                continue
-
-            records = data.get("data", {}).get("records", [])
-            print(f"✅ 第 {page} 页获取 {len(records)} 条记录")
-            all_records.extend(records)
+                # 检查业务状态码 (有些系统 HTTP 200 但 code!=200 代表token过期)
+                if data.get("code") == 401:
+                    print(f" 失败 -> Token 已过期，请更新 cookies.txt 或 header 文件")
+                    break
+                
+                records = data.get("data", {}).get("records", [])
+                count = len(records)
+                print(f" 成功 (获取到 {count} 条数据)")
+                all_records.extend(records)
+                
+                # 如果获取的数据少于 size(20)，说明是最后一页了，可以提前结束
+                if count < 20:
+                    print("已到达最后一页，停止翻页。")
+                    break
+            else:
+                print(f" 失败 (HTTP {resp.status_code})")
 
         except Exception as e:
-            print(f"❌ 第 {page} 页请求异常: {e}")
+            print(f" 异常: {e}")
 
+    # 6. 导出数据
     if not all_records:
-        print("\n❗未获取到任何数据，请检查认证信息或接口参数。")
-        input("按回车键退出...")
-        return
-
-    # === 保存 Excel ===
-    base_dir = os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__))
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = os.path.join(base_dir, f"customerList_{timestamp}.xlsx")
-
-    try:
-        df = pd.DataFrame(all_records)
-        df.to_excel(output_file, index=False)
-        print(f"\n🎉 成功导出 {len(all_records)} 条记录到：{output_file}")
-    except Exception as e:
-        print(f"❌ 导出 Excel 失败：{e}")
+        print("\n没有获取到任何数据，未生成 Excel。")
+    else:
+        output_file = "customerList.xlsx"
+        print(f"\n正在写入 Excel: {output_file} ...")
+        try:
+            df = pd.DataFrame(all_records)
+            df.to_excel(output_file, index=False)
+            print(f"✅ 成功! 共导出 {len(all_records)} 条记录。")
+        except Exception as e:
+            print(f"❌ 写入 Excel 失败: {e}")
+            print("请检查文件是否被其他程序（如 WPS/Excel）占用。")
 
     input("\n任务完成，按回车键退出...")
 
-
 if __name__ == "__main__":
     main()
-
-
-
