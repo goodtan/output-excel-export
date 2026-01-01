@@ -13,12 +13,12 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 LIST_URL = "https://kuafu.dadixintong.com/reminder-app/cases/case/query"
 DETAIL_BASE_URL = "https://kuafu.dadixintong.com/reminder-app/cases/case/find/"
 
-# 基础请求头 (Token 待会儿在 main 函数里动态添加)
+# 基础请求头
 HEADERS = {
     "accept": "application/json, text/plain, */*",
     "referer": "https://kuafu.dadixintong.com/",
     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-    # "token":  <--- 这里先不填，等用户输入
+    # "token":  等待用户输入
 }
 
 # Excel 表头
@@ -38,27 +38,26 @@ EXCEL_HEADERS = [
 def get_detail_data(case_id):
     """
     根据 ID 获取详情
-    URL 格式: .../case/find/{case_id}
     """
+    # 修复：如果 ID 带有 (E) 等后缀，可能导致接口查不到，这里尝试原样请求
     full_url = f"{DETAIL_BASE_URL}{case_id}"
     
     try:
-        # 随机等待
         time.sleep(random.uniform(0.3, 0.6))
-        
-        # 发送 GET 请求
+        # 增加 verify=False 和超时设置
         resp = requests.get(full_url, headers=HEADERS, verify=False, timeout=10)
         
         if resp.status_code == 200:
             res_json = resp.json()
-            return res_json.get("result", {})
+            # 【关键修复】如果 result 是 None，返回空字典 {}，防止后续报错
+            return res_json.get("result") or {}
         else:
             print(f"   [详情失败] ID:{case_id} 状态码:{resp.status_code}")
-            return {}
+            return {} # 返回空字典
             
     except Exception as e:
         print(f"   [详情异常] ID:{case_id} 错误:{e}")
-        return {}
+        return {} # 返回空字典
 
 def process_record(list_item):
     """
@@ -72,8 +71,11 @@ def process_record(list_item):
     # 1. 请求详情
     detail = get_detail_data(case_id)
     
-    # 2. 辅助函数
+    # 2. 辅助函数 【关键修复】
     def get_val(data_dict, key):
+        # 如果传入的数据本身是 None，直接返回空字符串
+        if data_dict is None:
+            return ""
         val = data_dict.get(key)
         return val if val is not None else ""
 
@@ -123,11 +125,9 @@ def process_record(list_item):
 
 def main():
     print("==========================================")
-    print("     案件数据导出工具 (Token 输入版)")
+    print("     案件数据导出工具 (防崩溃版)")
     print("==========================================\n")
 
-    # 1. 这一步最关键：手动输入 Token
-    # .strip() 可以防止复制时多带了空格或回车
     input_token = input("请粘贴最新的 Token 并按回车: ").strip()
     
     if not input_token:
@@ -135,7 +135,6 @@ def main():
         input("按回车键退出...")
         return
 
-    # 将输入的 Token 加入到全局请求头中
     HEADERS["token"] = input_token
     print("✅ Token 已设置！\n")
 
@@ -156,8 +155,7 @@ def main():
             params = {"page": str(page), "pageSize": "50", "isAssigned": "1"}
             res = requests.get(LIST_URL, headers=HEADERS, params=params, verify=False, timeout=10)
             
-            # 如果 Token 过期，这里通常会返回 401 或 403
-            if res.status_code == 401 or res.status_code == 403:
+            if res.status_code in [401, 403]:
                 print("❌ 错误：Token 已过期或无效，请重新抓取 Token。")
                 break
                 
@@ -183,18 +181,21 @@ def main():
             print("本页无数据。")
             continue
 
-        # 循环处理每条数据
         for item in records:
-            row = process_record(item)
-            all_data.append(row)
+            # 增加 try-except 保护，防止某一条数据异常导致整个程序闪退
+            try:
+                row = process_record(item)
+                all_data.append(row)
+            except Exception as e:
+                print(f"⚠️ 跳过异常数据 {item.get('borrowerUserName', '未知')}: {e}")
+                continue
             
-        # 临时保存
         print(f"第 {page} 页数据已获取，正在临时保存...")
-        temp_df = pd.DataFrame(all_data, columns=EXCEL_HEADERS)
         try:
+            temp_df = pd.DataFrame(all_data, columns=EXCEL_HEADERS)
             temp_df.to_excel(f"temp_data_page_{start_p}_to_{page}.xlsx", index=False)
         except Exception as e:
-            print(f"临时保存失败 (可能是文件被打开了): {e}")
+            print(f"临时保存失败: {e}")
 
     print("\n✅ 所有任务完成！")
     
@@ -205,11 +206,10 @@ def main():
             df.to_excel(final_filename, index=False)
             print(f"🎉 最终文件已生成: {final_filename}")
         except Exception as e:
-            print(f"❌ 保存文件失败 (请关闭同名 Excel 文件): {e}")
+            print(f"❌ 保存文件失败 (请检查文件是否被占用): {e}")
     else:
         print("⚠️ 未获取到任何数据")
         
-    # 防止 EXE 窗口闪退
     input("\n程序运行结束，按回车键退出...")
 
 if __name__ == "__main__":
