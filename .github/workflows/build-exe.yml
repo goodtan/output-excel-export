@@ -1,8 +1,10 @@
-name: Build Customer List Exporter
+name: Build 0101 Exporter
 
 on:
   push:
     branches: [ main ]
+  # 新增：允许在 GitHub Actions 页面手动点击按钮触发构建
+  workflow_dispatch:
 
 jobs:
   build:
@@ -17,21 +19,21 @@ jobs:
         with:
           python-version: '3.11'
 
-      # 【关键修改 1】安装 requests (你的代码用了这个)，删除了 selenium (你的代码没用)
       - name: Install dependencies
+        # 安装脚本需要的库：pandas, openpyxl, requests 以及打包工具 pyinstaller
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller pandas openpyxl requests
 
-      # 【关键修改 2】文件名改成现在的脚本名，并指定生成的 exe 名字
       - name: Build EXE
+        # 【修改点】这里将目标文件改为了 0101.py
+        # --name customer_exporter 意味着生成的 exe 叫 customer_exporter.exe
         run: |
-          pyinstaller --onefile --clean --name customer_exporter "request_customer_list_to_excel.py"
+          pyinstaller --onefile --clean --name customer_exporter "0101.py"
 
-      # 【关键修改 3】上传路径要和上面生成的 exe 名字对应
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
           name: customer_exporter_exe
+          # 路径必须对应：dist/ + 上面设定的 name + .exe
           path: dist/customer_exporter.exe
-
