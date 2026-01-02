@@ -4,13 +4,20 @@ import time
 import random
 import urllib3
 import datetime
+import subprocess
+import sys
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # 禁用 SSL 安全警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ================= 配置区域 =================
+# ================= 安全配置区域 =================
+
+# 允许运行的机器码 (如有需要请修改)
+ALLOWED_UUIDS = ["ALL"] 
+
+# ================= 常规配置 =================
 
 LIST_URL = "https://kuafu.dadixintong.com/reminder-app/cases/case/query"
 DETAIL_BASE_URL = "https://kuafu.dadixintong.com/reminder-app/cases/case/find/"
@@ -34,7 +41,23 @@ EXCEL_HEADERS = [
     "应还金额", "实收金额", "代收金额"
 ]
 
-# ================= 网络请求增强版 (Session) =================
+# ================= 基础工具函数 =================
+
+def get_current_machine_uuid():
+    try:
+        cmd = "wmic csproduct get uuid"
+        output = subprocess.check_output(cmd, shell=True).decode()
+        lines = output.strip().split('\n')
+        return lines[1].strip() if len(lines) >= 2 else "UNKNOWN"
+    except: return "ERROR"
+
+def check_permission():
+    if "ALL" in ALLOWED_UUIDS: return
+    current_uuid = get_current_machine_uuid()
+    if current_uuid not in ALLOWED_UUIDS:
+        print(f"⛔ 未授权设备 (UUID: {current_uuid})")
+        input("按回车键退出...")
+        sys.exit()
 
 session = requests.Session()
 retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
@@ -42,69 +65,44 @@ session.mount('https://', HTTPAdapter(max_retries=retries))
 session.mount('http://', HTTPAdapter(max_retries=retries))
 
 def safe_request(url, params=None):
-    """
-    安全请求函数：自动重试，防卡死
-    """
     try:
-        # 5秒连接超时，10秒读取超时
         resp = session.get(url, headers=HEADERS, params=params, verify=False, timeout=(5, 10))
-        if resp.status_code == 200:
-            return resp.json()
+        if resp.status_code == 200: return resp.json()
         return None
-    except Exception:
-        return None
-
-# ================= 辅助工具 =================
+    except: return None
 
 def clean_case_id(raw_id):
-    """
-    【关键修正】清洗 ID
-    将 "1420963568373014574(E)" 变成 "1420963568373014574"
-    """
-    if not raw_id:
-        return ""
-    # 转成字符串
+    if not raw_id: return ""
     s_id = str(raw_id)
-    # 如果包含左括号，只取左括号前面的部分
-    if "(" in s_id:
-        return s_id.split("(")[0]
-    if "（" in s_id: # 兼容中文括号
-        return s_id.split("（")[0]
+    if "(" in s_id: return s_id.split("(")[0]
+    if "（" in s_id: return s_id.split("（")[0]
     return s_id
 
-# ================= 核心逻辑 =================
+# ================= 业务逻辑 =================
 
 def get_detail_data(clean_id):
-    """请求详情 (使用清洗后的 ID)"""
     time.sleep(random.uniform(0.1, 0.2))
     full_url = f"{DETAIL_BASE_URL}{clean_id}"
     data = safe_request(full_url)
     return data.get("result") if data else {}
 
 def get_plaintext_data(clean_id, type_code):
-    """请求明文数据 (使用清洗后的 ID)"""
     time.sleep(random.uniform(0.1, 0.2))
     params = {"id": clean_id, "type": str(type_code)}
     data = safe_request(PLAINTEXT_URL, params)
     return data.get("result", "") if data else ""
 
 def process_record(list_item):
-    # 1. 获取原始 ID 和 名字
     raw_case_id = list_item.get("caseNo") 
     name = list_item.get("borrowerUserName")
-    
-    # 2. 【关键】获取清洗后的 ID (去掉 (E))
     real_id = clean_case_id(raw_case_id)
     
-    # 打印进度 (用 \r 实现不换行刷新)
-    print(f" -> 处理: {name} | ID: {real_id} | 正在请求...          ", end="\r")
+    print(f" -> 处理: {name} | ID: {real_id} | 请求中...          ", end="\r")
     
-    # 3. 使用清洗后的 ID 去请求各个接口
     detail = get_detail_data(real_id)
-    real_phone = get_plaintext_data(real_id, 1)   # 获取手机
-    real_id_card = get_plaintext_data(real_id, 2) # 获取身份证
+    real_phone = get_plaintext_data(real_id, 1)
+    real_id_card = get_plaintext_data(real_id, 2)
     
-    # 4. 辅助取值
     def get_val(key, default=""):
         val = detail.get(key)
         if val is not None and str(val) != "": return val
@@ -112,10 +110,9 @@ def process_record(list_item):
         if val is not None and str(val) != "": return val
         return default
 
-    # 5. 组装数据
     row_data = {
         "姓名": list_item.get("borrowerUserName"),
-        "id": raw_case_id, # Excel 里保留原始带(E)的ID，方便核对
+        "id": raw_case_id,
         "案件类型": get_val("caseStage"), 
         "借款金额": get_val("financeAmount"),
         "逾期期数": f"{get_val('financeOverdueStart')}-{get_val('financeOverdueEnd')}",
@@ -128,7 +125,6 @@ def process_record(list_item):
         "剩余应还本金": get_val("leftNeedRepayPrincipal"),
         "剩余应还利息": get_val("leftNeedRepayInterest"),
         "所在省市": get_val("borrowerArea"),
-        # 使用明文接口数据
         "证件号": real_id_card if real_id_card else get_val("borrowerIdCard"),
         "本人手机号码": real_phone if real_phone else get_val("borrowerTel"),
         "所在部门": get_val("deptName"), 
@@ -159,26 +155,41 @@ def process_record(list_item):
 
 def main():
     print("==========================================")
-    print(" 案件数据导出 (自动清洗ID后缀 + 防卡死)")
-    print("==========================================\n")
+    print(" 案件数据导出 (自动去重 + 固定排序 + 完整性校验)")
+    print("==========================================")
+    
+    check_permission()
 
+    print("\n")
     input_token = input("请粘贴 Token: ").strip()
     if not input_token: return
     HEADERS["token"] = input_token
 
     try:
-        start_p = int(input("开始页码: "))
-        end_p = int(input("结束页码: "))
+        start_p = int(input("开始页码 (通常填1): "))
+        end_p = int(input("结束页码 (例如 120): "))
     except: return
 
     all_data = []
+    # 1. 定义去重集合，用于存放已经抓过的 ID
+    seen_ids = set() 
+    
     run_id = datetime.datetime.now().strftime("%H%M%S")
+    server_total = 0
 
     for page in range(start_p, end_p + 1):
         print(f"\n====== 正在处理第 {page} 页 ======")
         
         try:
-            params = {"page": str(page), "pageSize": "50", "isAssigned": "1"}
+            # 2. 【关键修改】加入 orderByField 固定排序，防止翻页时数据乱跳
+            params = {
+                "page": str(page), 
+                "pageSize": "50", 
+                "isAssigned": "1",
+                "orderByField": "caseNo", # 强制按案件号排序
+                "order": "asc"            # 正序
+            }
+            
             res = session.get(LIST_URL, headers=HEADERS, params=params, verify=False, timeout=15)
             
             if res.status_code in [401, 403]:
@@ -186,12 +197,16 @@ def main():
                 break
             
             data_json = res.json()
-            if "result" in data_json and "records" in data_json["result"]:
-                records = data_json["result"]["records"]
-            elif "data" in data_json and "records" in data_json["data"]:
-                records = data_json["data"]["records"]
-            else:
-                records = []
+            
+            # 提取数据和总数
+            records = []
+            if "result" in data_json:
+                records = data_json["result"].get("records", [])
+                server_total = data_json["result"].get("total", 0) # 获取服务器总数
+            elif "data" in data_json:
+                records = data_json["data"].get("records", [])
+                server_total = data_json["data"].get("total", 0)
+
         except Exception as e:
             print(f"列表获取失败: {e}")
             continue
@@ -200,27 +215,51 @@ def main():
             print("本页无数据。")
             continue
 
+        # 3. 【关键逻辑】循环处理，带去重判断
+        page_valid_count = 0
+        duplicate_count = 0
+        
         for item in records:
+            case_id = item.get("caseNo")
+            
+            # 如果这个 ID 已经在集合里了，说明是重复数据，直接跳过
+            if case_id in seen_ids:
+                duplicate_count += 1
+                continue
+            
+            # 如果没见过，加入集合，并开始抓取
+            seen_ids.add(case_id)
             try:
                 row = process_record(item)
                 all_data.append(row)
+                page_valid_count += 1
             except Exception: pass
         
-        # 换行
-        print(f"\n第 {page} 页完成，保存中...")
+        # 换行并显示统计
+        print(f"\n✅ 第 {page} 页结束: 新增 {page_valid_count} 条，跳过重复 {duplicate_count} 条")
         
+        # 临时保存
         try:
             temp_filename = f"临时数据_{start_p}至{page}页_{run_id}.xlsx"
             df = pd.DataFrame(all_data, columns=EXCEL_HEADERS)
             df.to_excel(temp_filename, index=False)
-            print(f"✅ 已保存: {temp_filename}")
         except: pass
 
+    # 4. 最终结果核对
+    print("\n" + "="*40)
+    print(f"统计报告:")
+    print(f"服务器显示总数: {server_total} 条")
+    print(f"实际抓取去重后: {len(all_data)} 条")
+    if server_total > 0:
+        completion_rate = (len(all_data) / server_total) * 100
+        print(f"数据完整率: {completion_rate:.2f}%")
+    print("="*40)
+
     if all_data:
-        final_filename = f"最终导出_{run_id}.xlsx"
+        final_filename = f"最终导出_{start_p}-{end_p}页_{run_id}.xlsx"
         try:
             pd.DataFrame(all_data, columns=EXCEL_HEADERS).to_excel(final_filename, index=False)
-            print(f"\n🎉 完成！文件: {final_filename}")
+            print(f"\n🎉 成功保存: {final_filename}")
         except: pass
         
     input("\n按回车键退出...")
