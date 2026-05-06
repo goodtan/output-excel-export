@@ -1,4 +1,3 @@
-import argparse
 import base64
 import hashlib
 import json
@@ -20,23 +19,32 @@ DEFAULT_CRYPT_KEY = "563BCDCFACFEF5C74676C7EBFBBDB613"
 BASE_URL = "https://server.xingeguanli.com/osapi/Cases/index"
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="案件列表导出 Excel 工具")
-
-    parser.add_argument("--token", default=DEFAULT_TOKEN, help="登录 token")
-    parser.add_argument("--crypt-iv", default=DEFAULT_CRYPT_IV, help="AES CBC IV")
-    parser.add_argument("--crypt-key", default=DEFAULT_CRYPT_KEY, help="加密 key")
-    parser.add_argument("--per-page", type=int, default=10, help="每页数量")
-    parser.add_argument("--max-page", type=int, default=0, help="最大页数，0 表示自动全部导出")
-
-    return parser.parse_args()
+def input_with_default(prompt, default_value):
+    user_input = input(f"{prompt}（默认: {default_value}）: ").strip()
+    return user_input if user_input else default_value
 
 
-args = parse_args()
+print("===== 案件导出工具 =====\n")
 
-TOKEN = args.token
-CRYPT_IV = args.crypt_iv
-CRYPT_KEY = args.crypt_key
+TOKEN = input_with_default("请输入 TOKEN", DEFAULT_TOKEN)
+
+CRYPT_IV = input_with_default(
+    "请输入 CRYPT_IV",
+    DEFAULT_CRYPT_IV
+)
+
+CRYPT_KEY = input_with_default(
+    "请输入 CRYPT_KEY",
+    DEFAULT_CRYPT_KEY
+)
+
+per_page_input = input("请输入每页数量（默认10）: ").strip()
+PER_PAGE = int(per_page_input) if per_page_input else 10
+
+max_page_input = input("请输入最大页数（0=全部）: ").strip()
+MAX_PAGE = int(max_page_input) if max_page_input else 0
+
+print("\n===== 配置完成，开始导出 =====\n")
 
 
 COLUMNS = [
@@ -83,7 +91,11 @@ def decrypt_data(encrypted_data: str):
 def format_time(value):
     if not value or value == 0 or value == "--":
         return ""
-    return datetime.fromtimestamp(int(value)).strftime("%Y-%m-%d %H:%M:%S")
+
+    try:
+        return datetime.fromtimestamp(int(value)).strftime("%Y-%m-%d %H:%M:%S")
+    except:
+        return ""
 
 
 def map_case_status(value):
@@ -92,14 +104,14 @@ def map_case_status(value):
         2: "暂停",
         3: "退案",
     }
-    return mapping.get(value, value or "")
+    return mapping.get(value, str(value) if value else "")
 
 
 def map_coll_status(value):
     mapping = {
         20: "待跟进",
     }
-    return mapping.get(value, value or "")
+    return mapping.get(value, str(value) if value else "")
 
 
 def map_shixin(value):
@@ -197,6 +209,7 @@ def fetch_page(page, per_page=10):
     )
 
     response.raise_for_status()
+
     body = response.json()
 
     if body.get("code") != 1:
@@ -228,41 +241,51 @@ def export_excel(data_list):
         ws.column_dimensions[col_letter].width = max(len(header) * 2, 16)
 
     filename = f"案件列表_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+
     wb.save(filename)
 
-    print(f"Excel 导出完成：{filename}")
+    print(f"\nExcel 导出完成：{filename}")
 
 
 def main():
     all_data = []
-    per_page = args.per_page
-    max_page = args.max_page
 
     page = 1
 
     while True:
-        if max_page and page > max_page:
+        if MAX_PAGE and page > MAX_PAGE:
             break
 
         print(f"正在请求第 {page} 页...")
 
-        decrypted = fetch_page(page, per_page)
+        decrypted = fetch_page(page, PER_PAGE)
 
         data_list = decrypted.get("data", [])
         count = int(decrypted.get("count", 0))
 
         all_data.extend(data_list)
 
-        print(f"第 {page} 页 {len(data_list)} 条，累计 {len(all_data)} 条，总数 {count}")
+        print(
+            f"第 {page} 页 {len(data_list)} 条，"
+            f"累计 {len(all_data)} 条，"
+            f"总数 {count}"
+        )
 
         if not data_list or len(all_data) >= count:
             break
 
         page += 1
+
         time.sleep(0.5)
 
     export_excel(all_data)
 
+    input("\n按回车键退出...")
+
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"\n程序异常：{e}")
+        input("\n按回车键退出...")
