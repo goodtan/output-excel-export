@@ -1,9 +1,9 @@
-name: Build 0101 Exporter
+name: Build Case Exporter
 
 on:
   push:
     branches: [ main ]
-  # 新增：允许在 GitHub Actions 页面手动点击按钮触发构建
+
   workflow_dispatch:
 
 jobs:
@@ -20,20 +20,16 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        # 安装脚本需要的库：pandas, openpyxl, requests 以及打包工具 pyinstaller
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller pandas openpyxl requests
+          pip install pyinstaller requests pycryptodome openpyxl
 
       - name: Build EXE
-        # 【修改点】这里将目标文件改为了 0101.py
-        # --name customer_exporter 意味着生成的 exe 叫 customer_exporter.exe
         run: |
-          pyinstaller --onefile --clean --name customer_exporter "0101.py"
+          pyinstaller --onefile --clean --name case_exporter export_cases.py
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
-          name: customer_exporter_exe
-          # 路径必须对应：dist/ + 上面设定的 name + .exe
-          path: dist/customer_exporter.exe
+          name: case_exporter_exe
+          path: dist/case_exporter.exe
