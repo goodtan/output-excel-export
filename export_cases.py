@@ -16,7 +16,8 @@ DEFAULT_TOKEN = "370c19a134924cef4c6c6f03cfb0707c"
 DEFAULT_CRYPT_IV = "+noB4IVKOqQA7T2iH9MGAw=="
 DEFAULT_CRYPT_KEY = "563BCDCFACFEF5C74676C7EBFBBDB613"
 
-BASE_URL = "https://server.xingeguanli.com/osapi/Cases/index"
+LIST_URL = "https://server.xingeguanli.com/osapi/Cases/index"
+DETAIL_URL = "https://server.xingeguanli.com/osapi/Cases/caseInfo"
 
 
 def input_with_default(prompt, default_value):
@@ -76,13 +77,20 @@ def decrypt_data(encrypted_data: str):
     final_key = "MC.1888@#!1" + CRYPT_KEY
 
     key = hashlib.sha256(final_key.encode("utf-8")).digest()
+
     iv = base64.b64decode(CRYPT_IV)
+
     cipher_text = base64.b64decode(encrypted_data)
 
     cipher = AES.new(key, AES.MODE_CBC, iv)
-    decrypted = unpad(cipher.decrypt(cipher_text), AES.block_size)
+
+    decrypted = unpad(
+        cipher.decrypt(cipher_text),
+        AES.block_size
+    )
 
     base64_text = decrypted.decode("utf-8")
+
     json_text = base64.b64decode(base64_text).decode("utf-8")
 
     return json.loads(json_text)
@@ -93,7 +101,9 @@ def format_time(value):
         return ""
 
     try:
-        return datetime.fromtimestamp(int(value)).strftime("%Y-%m-%d %H:%M:%S")
+        return datetime.fromtimestamp(
+            int(value)
+        ).strftime("%Y-%m-%d %H:%M:%S")
     except:
         return ""
 
@@ -104,6 +114,7 @@ def map_case_status(value):
         2: "暂停",
         3: "退案",
     }
+
     return mapping.get(value, str(value) if value else "")
 
 
@@ -111,6 +122,7 @@ def map_coll_status(value):
     mapping = {
         20: "待跟进",
     }
+
     return mapping.get(value, str(value) if value else "")
 
 
@@ -119,39 +131,8 @@ def map_shixin(value):
         1: "是",
         2: "否",
     }
+
     return mapping.get(value, "")
-
-
-def transform_row(item):
-    bill_no = item.get("bill_no") or ""
-    mem_primary_name = item.get("mem_primary_name") or ""
-
-    case_idcard = item.get("case_idcard_asterisk") or item.get("case_idcard") or ""
-    idcard_area = item.get("idcard_area") or ""
-
-    return {
-        "id": item.get("id", ""),
-        "case_status_text": map_case_status(item.get("case_status")),
-        "bill_no_text": f"{bill_no}【{mem_primary_name}】" if mem_primary_name else bill_no,
-        "is_shixin_text": map_shixin(item.get("is_shixin")),
-        "case_name": item.get("case_name", ""),
-        "contract": item.get("contract", ""),
-        "idcard_text": f"{case_idcard}【{idcard_area}】" if idcard_area else case_idcard,
-        "case_phone": item.get("case_phone", ""),
-        "wxamp": item.get("wxamp", ""),
-        "amount_payable": item.get("amount_payable") or item.get("new_entrust_money") or "",
-        "period": item.get("period", ""),
-        "overdue_days": item.get("overdue_days", ""),
-        "member_name": item.get("member_name", ""),
-        "case_area": item.get("case_area", ""),
-        "follow_status_text": "已跟进" if item.get("follow_time") else "未跟进",
-        "coll_status_text": map_coll_status(item.get("coll_status")),
-        "entrust_start_text": format_time(item.get("entrust_start")),
-        "entrust_end_text": format_time(item.get("entrust_end")),
-        "follow_time_text": format_time(item.get("follow_time")),
-        "unfollow_days": item.get("unfollow_days", ""),
-        "last_follow_time_text": format_time(item.get("note_time") or item.get("follow_time")),
-    }
 
 
 def fetch_page(page, per_page=10):
@@ -202,7 +183,7 @@ def fetch_page(page, per_page=10):
     }
 
     response = requests.get(
-        BASE_URL,
+        LIST_URL,
         headers=headers,
         params=params,
         timeout=180,
@@ -213,34 +194,189 @@ def fetch_page(page, per_page=10):
     body = response.json()
 
     if body.get("code") != 1:
-        raise Exception(body.get("msg", "接口请求失败"))
+        raise Exception(body.get("msg", "列表接口请求失败"))
 
     return decrypt_data(body["data"])
 
 
+def fetch_case_detail(case_id):
+    headers = {
+        "accept": "*/*",
+        "origin": "https://os.xingeguanli.com",
+        "referer": "https://os.xingeguanli.com/",
+        "token": TOKEN,
+        "x-requested-with": "XMLHttpRequest",
+        "user-agent": "Mozilla/5.0",
+    }
+
+    params = {
+        "case_id": case_id
+    }
+
+    response = requests.get(
+        DETAIL_URL,
+        headers=headers,
+        params=params,
+        timeout=180,
+    )
+
+    response.raise_for_status()
+
+    body = response.json()
+
+    if body.get("code") != 1:
+        print(f"详情接口失败: {case_id}")
+        return {}
+
+    try:
+        detail_data = decrypt_data(body["data"])
+        return detail_data
+    except Exception as e:
+        print(f"详情解密失败: {case_id} -> {e}")
+        return {}
+
+
+def transform_row(item):
+    case_id = item.get("id")
+
+    print(f"正在获取详情: {case_id}")
+
+    detail = fetch_case_detail(case_id)
+
+    bill_no = item.get("bill_no") or ""
+
+    mem_primary_name = item.get("mem_primary_name") or ""
+
+    case_phone = (
+        detail.get("case_phone")
+        or item.get("case_phone", "")
+    )
+
+    case_idcard = (
+        detail.get("case_idcard")
+        or item.get("case_idcard")
+        or item.get("case_idcard_asterisk")
+        or ""
+    )
+
+    idcard_area = item.get("idcard_area") or ""
+
+    return {
+        "id": item.get("id", ""),
+
+        "case_status_text": map_case_status(
+            item.get("case_status")
+        ),
+
+        "bill_no_text": (
+            f"{bill_no}【{mem_primary_name}】"
+            if mem_primary_name else bill_no
+        ),
+
+        "is_shixin_text": map_shixin(
+            item.get("is_shixin")
+        ),
+
+        "case_name": item.get("case_name", ""),
+
+        "contract": item.get("contract", ""),
+
+        "idcard_text": (
+            f"{case_idcard}【{idcard_area}】"
+            if idcard_area else case_idcard
+        ),
+
+        "case_phone": case_phone,
+
+        "wxamp": item.get("wxamp", ""),
+
+        "amount_payable": (
+            item.get("amount_payable")
+            or item.get("new_entrust_money")
+            or ""
+        ),
+
+        "period": item.get("period", ""),
+
+        "overdue_days": item.get("overdue_days", ""),
+
+        "member_name": item.get("member_name", ""),
+
+        "case_area": item.get("case_area", ""),
+
+        "follow_status_text": (
+            "已跟进"
+            if item.get("follow_time")
+            else "未跟进"
+        ),
+
+        "coll_status_text": map_coll_status(
+            item.get("coll_status")
+        ),
+
+        "entrust_start_text": format_time(
+            item.get("entrust_start")
+        ),
+
+        "entrust_end_text": format_time(
+            item.get("entrust_end")
+        ),
+
+        "follow_time_text": format_time(
+            item.get("follow_time")
+        ),
+
+        "unfollow_days": item.get("unfollow_days", ""),
+
+        "last_follow_time_text": format_time(
+            item.get("note_time")
+            or item.get("follow_time")
+        ),
+    }
+
+
 def export_excel(data_list):
     wb = Workbook()
+
     ws = wb.active
+
     ws.title = "案件列表"
 
     headers = [item[0] for item in COLUMNS]
+
     keys = [item[1] for item in COLUMNS]
 
     ws.append(headers)
 
     for cell in ws[1]:
         cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        cell.alignment = Alignment(
+            horizontal="center",
+            vertical="center"
+        )
 
     for item in data_list:
         row = transform_row(item)
-        ws.append([row.get(key, "") for key in keys])
+
+        ws.append([
+            row.get(key, "")
+            for key in keys
+        ])
 
     for col_index, header in enumerate(headers, start=1):
         col_letter = get_column_letter(col_index)
-        ws.column_dimensions[col_letter].width = max(len(header) * 2, 16)
 
-    filename = f"案件列表_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        ws.column_dimensions[col_letter].width = max(
+            len(header) * 2,
+            16
+        )
+
+    filename = (
+        f"案件列表_"
+        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        f".xlsx"
+    )
 
     wb.save(filename)
 
@@ -261,6 +397,7 @@ def main():
         decrypted = fetch_page(page, PER_PAGE)
 
         data_list = decrypted.get("data", [])
+
         count = int(decrypted.get("count", 0))
 
         all_data.extend(data_list)
