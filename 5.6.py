@@ -1,7 +1,10 @@
+import argparse
 import base64
 import hashlib
+import json
 import time
 from datetime import datetime
+
 import requests
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
@@ -10,12 +13,30 @@ from openpyxl.styles import Font, Alignment
 from openpyxl.utils import get_column_letter
 
 
-TOKEN = "370c19a134924cef4c6c6f03cfb0707c"
-
-CRYPT_IV = "+noB4IVKOqQA7T2iH9MGAw=="
-CRYPT_KEY = "563BCDCFACFEF5C74676C7EBFBBDB613"
+DEFAULT_TOKEN = "370c19a134924cef4c6c6f03cfb0707c"
+DEFAULT_CRYPT_IV = "+noB4IVKOqQA7T2iH9MGAw=="
+DEFAULT_CRYPT_KEY = "563BCDCFACFEF5C74676C7EBFBBDB613"
 
 BASE_URL = "https://server.xingeguanli.com/osapi/Cases/index"
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="案件列表导出 Excel 工具")
+
+    parser.add_argument("--token", default=DEFAULT_TOKEN, help="登录 token")
+    parser.add_argument("--crypt-iv", default=DEFAULT_CRYPT_IV, help="AES CBC IV")
+    parser.add_argument("--crypt-key", default=DEFAULT_CRYPT_KEY, help="加密 key")
+    parser.add_argument("--per-page", type=int, default=10, help="每页数量")
+    parser.add_argument("--max-page", type=int, default=0, help="最大页数，0 表示自动全部导出")
+
+    return parser.parse_args()
+
+
+args = parse_args()
+
+TOKEN = args.token
+CRYPT_IV = args.crypt_iv
+CRYPT_KEY = args.crypt_key
 
 
 COLUMNS = [
@@ -29,7 +50,6 @@ COLUMNS = [
     ("手机号", "case_phone"),
     ("关联公众号", "wxamp"),
     ("剩余应还", "amount_payable"),
-
     ("账期", "period"),
     ("逾期天数", "overdue_days"),
     ("催收员", "member_name"),
@@ -54,11 +74,9 @@ def decrypt_data(encrypted_data: str):
     cipher = AES.new(key, AES.MODE_CBC, iv)
     decrypted = unpad(cipher.decrypt(cipher_text), AES.block_size)
 
-    # 解密出来还是一层 Base64
     base64_text = decrypted.decode("utf-8")
     json_text = base64.b64decode(base64_text).decode("utf-8")
 
-    import json
     return json.loads(json_text)
 
 
@@ -110,7 +128,6 @@ def transform_row(item):
         "case_phone": item.get("case_phone", ""),
         "wxamp": item.get("wxamp", ""),
         "amount_payable": item.get("amount_payable") or item.get("new_entrust_money") or "",
-
         "period": item.get("period", ""),
         "overdue_days": item.get("overdue_days", ""),
         "member_name": item.get("member_name", ""),
@@ -180,7 +197,6 @@ def fetch_page(page, per_page=10):
     )
 
     response.raise_for_status()
-
     body = response.json()
 
     if body.get("code") != 1:
@@ -219,11 +235,15 @@ def export_excel(data_list):
 
 def main():
     all_data = []
-    per_page = 10
+    per_page = args.per_page
+    max_page = args.max_page
 
     page = 1
 
     while True:
+        if max_page and page > max_page:
+            break
+
         print(f"正在请求第 {page} 页...")
 
         decrypted = fetch_page(page, per_page)
