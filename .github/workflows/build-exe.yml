@@ -11,23 +11,36 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller requests pycryptodome openpyxl
+          pip install pyinstaller playwright openpyxl requests pycryptodome
 
+      # 安装 Playwright Chromium
+      - name: Install Playwright Browser
+        run: |
+          playwright install chromium
+
+      # 打包
       - name: Build EXE
         run: |
-          pyinstaller --onefile --clean --name case_exporter export_cases.py
+          pyinstaller ^
+            --onefile ^
+            --clean ^
+            --name case_exporter ^
+            --hidden-import=playwright ^
+            --hidden-import=playwright.sync_api ^
+            export_cases.py
 
+      # 上传
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
