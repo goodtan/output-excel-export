@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import traceback
+from datetime import datetime
 
 from openpyxl import load_workbook, Workbook
 from playwright.sync_api import sync_playwright
@@ -93,6 +94,27 @@ def save_results(results):
         print(f"output.xlsx 正在被打开，已另存为：{alt_path}")
 
 
+def get_page(playwright):
+    browser = playwright.chromium.connect_over_cdp(CDP_URL)
+    context = browser.contexts[0]
+
+    pages = [p for p in context.pages if not p.is_closed()]
+    page = pages[0] if pages else context.new_page()
+
+    return browser, context, page
+
+
+def ensure_page(playwright, page):
+    try:
+        if page is None or page.is_closed():
+            print("页面已关闭，正在重新连接 Chrome...")
+            _, _, page = get_page(playwright)
+        return page
+    except Exception:
+        print("重新连接 Chrome 失败，请确认 Chrome 远程调试窗口还开着")
+        raise
+
+
 def wait_detail_ready(page):
     page.wait_for_selector(".record", timeout=30000)
     page.wait_for_selector(".call-out", timeout=30000)
@@ -119,12 +141,10 @@ def sign_in(page):
         btn.wait_for(state="visible", timeout=10000)
 
         cls = btn.get_attribute("class") or ""
-        aria_checked = btn.get_attribute("aria-checked") or ""
-
-        print("签入按钮状态：", cls, aria_checked)
+        print("签入按钮状态：", cls)
 
         if "ant-switch-checked" in cls:
-            print("当前已经签入，跳过")
+            print("当前已经签入")
             return
 
         btn.click(force=True, timeout=10000)
@@ -148,83 +168,80 @@ def sign_in(page):
 
 
 def change_current_status(page):
-    try:
-        status_select = page.locator("div.ant-select.current-status-value").first
-        status_select.wait_for(state="visible", timeout=20000)
+    status_select = page.locator("div.ant-select.current-status-value").first
+    status_select.wait_for(state="visible", timeout=20000)
 
-        current_text = status_select.inner_text(timeout=5000)
-        print("当前状态：", current_text)
+    current_text = status_select.inner_text(timeout=5000)
+    print("当前状态：", current_text)
 
-        if "空闲" in current_text:
-            print("当前已是空闲，跳过切换")
+    if "空闲" in current_text:
+        print("当前已是空闲")
+        return
+
+    status_select.click(force=True, timeout=10000)
+    time.sleep(1)
+
+    dropdown = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").last
+    dropdown.wait_for(state="visible", timeout=10000)
+
+    dropdown.locator(".ant-select-item-option").filter(has_text="空闲").last.click(
+        force=True,
+        timeout=10000,
+    )
+
+    time.sleep(2)
+
+    page.wait_for_function(
+        """
+        () => {
+            const el = document.querySelector('div.ant-select.current-status-value')
+            return el && el.innerText.includes('空闲')
+        }
+        """,
+        timeout=15000,
+    )
+
+    print("已切换状态为空闲")
+
+
+def ensure_idle(page):
+    for _ in range(3):
+        try:
+            change_current_status(page)
             return
+        except Exception as e:
+            print("状态不是空闲，重试切换：", e)
+            time.sleep(2)
 
-        status_select.click(force=True, timeout=10000)
-        time.sleep(1)
-
-        dropdown = page.locator(
-            ".ant-select-dropdown:not(.ant-select-dropdown-hidden)"
-        ).last
-
-        dropdown.wait_for(state="visible", timeout=10000)
-
-        dropdown.locator(".ant-select-item-option").filter(
-            has_text="空闲"
-        ).last.click(force=True, timeout=10000)
-
-        time.sleep(2)
-
-        page.wait_for_function(
-            """
-            () => {
-                const el = document.querySelector('div.ant-select.current-status-value')
-                return el && el.innerText.includes('空闲')
-            }
-            """,
-            timeout=15000,
-        )
-
-        print("已切换状态为空闲")
-
-    except Exception as e:
-        print("切换状态失败：", e)
-        raise
+    raise Exception("状态无法切换为空闲")
 
 
 def select_outbound_number(page):
-    try:
-        caller_select = page.locator("div.ant-select.dial-caller-select").first
-        caller_select.wait_for(state="visible", timeout=20000)
+    caller_select = page.locator("div.ant-select.dial-caller-select").first
+    caller_select.wait_for(state="visible", timeout=20000)
 
-        current_text = caller_select.inner_text(timeout=5000).strip()
-        print("当前外显号码：", current_text)
+    current_text = caller_select.inner_text(timeout=5000).strip()
+    print("当前外显号码：", current_text)
 
-        if current_text and "请选择" not in current_text:
-            print("外显号码已存在，跳过选择")
-            return
+    if current_text and "请选择" not in current_text:
+        print("外显号码已存在")
+        ensure_idle(page)
+        return
 
-        caller_select.click(force=True, timeout=10000)
-        time.sleep(1)
+    caller_select.click(force=True, timeout=10000)
+    time.sleep(1)
 
-        dropdown = page.locator(
-            ".ant-select-dropdown:not(.ant-select-dropdown-hidden)"
-        ).last
+    dropdown = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").last
+    dropdown.wait_for(state="visible", timeout=10000)
 
-        dropdown.wait_for(state="visible", timeout=10000)
+    option = dropdown.locator(".ant-select-item-option").filter(has_not_text="无数据").first
+    option.scroll_into_view_if_needed(timeout=5000)
+    option.click(force=True, timeout=10000)
 
-        option = dropdown.locator(".ant-select-item-option").filter(
-            has_not_text="无数据"
-        ).first
+    time.sleep(1)
+    print("已选择外显号码")
 
-        option.scroll_into_view_if_needed(timeout=5000)
-        option.click(force=True, timeout=10000)
-
-        time.sleep(1)
-        print("已选择外显号码")
-
-    except Exception as e:
-        print("选择外显号码失败：", e)
-        raise
+    ensure_idle(page)
 
 
 def get_name_from_page(page):
@@ -253,7 +270,13 @@ def get_real_phone(page):
         return ""
 
 
+def clean_phone(phone):
+    return "".join(ch for ch in phone if ch.isdigit() or ch == "*")
+
+
 def click_call_btn(page):
+    ensure_idle(page)
+
     page.locator(".call-out img[src*='contractMakeCall']").first.click(
         force=True,
         timeout=10000,
@@ -288,36 +311,31 @@ def hang_up(page):
 def wait_call_record_form_ready(page):
     page.wait_for_selector("#riskType", timeout=30000)
     page.wait_for_selector("#contactResult", timeout=30000)
-
-    page.wait_for_function(
-        """
-        () => {
-            const risk = document.querySelector('#riskType')
-            const contactResult = document.querySelector('#contactResult')
-            const text = document.body.innerText || ''
-
-            return risk &&
-                   contactResult &&
-                   text.includes('催收形式') &&
-                   text.includes('外呼') &&
-                   text.includes('催收对象') &&
-                   text.includes('承租人') &&
-                   text.includes('电话')
-        }
-        """,
-        timeout=30000,
-    )
+    page.wait_for_selector("#collectType", timeout=30000)
+    page.wait_for_selector("#touch", timeout=30000)
 
     time.sleep(1)
     print("催记录入表单已就绪")
 
 
+def get_visible_form_item_by_label(page, label_text):
+    items = page.locator(f".record .ant-form-item:has(label[title='{label_text}'])")
+    count = items.count()
+
+    for i in range(count - 1, -1, -1):
+        item = items.nth(i)
+        try:
+            box = item.bounding_box()
+            if box and box["width"] > 0 and box["height"] > 0:
+                return item
+        except Exception:
+            continue
+
+    return items.last
+
+
 def select_ant_option_by_label(page, label_text, option_text=None):
-    form_item = page.locator(
-        f".ant-form-item:has(label[title='{label_text}'])"
-    ).filter(
-        has_not=page.locator("[style*='display: none']")
-    ).last
+    form_item = get_visible_form_item_by_label(page, label_text)
 
     form_item.scroll_into_view_if_needed(timeout=8000)
 
@@ -325,15 +343,10 @@ def select_ant_option_by_label(page, label_text, option_text=None):
     select_root.click(force=True, timeout=10000)
     time.sleep(0.5)
 
-    dropdown = page.locator(
-        ".ant-select-dropdown:not(.ant-select-dropdown-hidden)"
-    ).last
-
+    dropdown = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").last
     dropdown.wait_for(state="visible", timeout=10000)
 
-    options = dropdown.locator(".ant-select-item-option").filter(
-        has_not_text="无数据"
-    )
+    options = dropdown.locator(".ant-select-item-option").filter(has_not_text="无数据")
 
     if option_text:
         options.filter(has_text=option_text).last.click(force=True, timeout=10000)
@@ -341,6 +354,81 @@ def select_ant_option_by_label(page, label_text, option_text=None):
         options.first.click(force=True, timeout=10000)
 
     time.sleep(0.5)
+    print(f"已选择：{label_text} -> {option_text or '第一个'}")
+
+
+def fill_input_by_label(page, label_text, value):
+    form_item = get_visible_form_item_by_label(page, label_text)
+    form_item.scroll_into_view_if_needed(timeout=8000)
+
+    input_box = form_item.locator("input:not([disabled])").first
+    input_box.fill(str(value), timeout=10000)
+
+    time.sleep(0.3)
+    print(f"已填写：{label_text} -> {value}")
+
+
+def fill_contact_time(page):
+    now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    page.evaluate(
+        """
+        (value) => {
+            const picker = document.querySelector('#contactTime')
+            if (!picker) return
+
+            const input = picker.querySelector('input')
+            if (!input) return
+
+            input.removeAttribute('disabled')
+            input.value = value
+
+            input.dispatchEvent(new Event('input', { bubbles: true }))
+            input.dispatchEvent(new Event('change', { bubbles: true }))
+            input.dispatchEvent(new Event('blur', { bubbles: true }))
+        }
+        """,
+        now_text,
+    )
+
+    time.sleep(0.5)
+    print("已填写联络时间：", now_text)
+
+
+def fill_collection_form(page, phone):
+    wait_call_record_form_ready(page)
+
+    # 催收形式：外呼
+    try:
+        select_ant_option_by_label(page, "催收形式", "外呼")
+    except Exception as e:
+        print("催收形式选择失败，继续：", e)
+
+    # 电话
+    phone_value = clean_phone(phone)
+    if phone_value:
+        try:
+            fill_input_by_label(page, "电话", phone_value)
+        except Exception as e:
+            print("电话填写失败，继续：", e)
+
+    # 风险分类：失联
+    select_ant_option_by_label(page, "风险分类", "失联")
+
+    # 是否触达：未触达
+    try:
+        select_ant_option_by_label(page, "是否触达", "未触达")
+    except Exception as e:
+        print("是否触达选择失败，继续：", e)
+
+    # 联络时间
+    try:
+        fill_contact_time(page)
+    except Exception as e:
+        print("联络时间填写失败，继续：", e)
+
+    # 联络结果：随便选一个
+    select_ant_option_by_label(page, "联络结果")
 
 
 def submit_form(page):
@@ -366,9 +454,11 @@ def process_case(page, task):
 
     sign_in(page)
 
-    change_current_status(page)
+    ensure_idle(page)
 
     select_outbound_number(page)
+
+    ensure_idle(page)
 
     name = get_name_from_page(page)
     phone = get_real_phone(page)
@@ -377,11 +467,7 @@ def process_case(page, task):
 
     hang_up(page)
 
-    wait_call_record_form_ready(page)
-
-    select_ant_option_by_label(page, "风险分类", "失联")
-
-    select_ant_option_by_label(page, "联络结果")
+    fill_collection_form(page, phone)
 
     submit_form(page)
 
@@ -394,25 +480,6 @@ def process_case(page, task):
         "status": "成功",
         "error": "",
     }
-
-
-def get_page(playwright):
-    if USE_EXISTING_CHROME:
-        browser = playwright.chromium.connect_over_cdp(CDP_URL)
-        context = browser.contexts[0]
-        page = context.pages[0] if context.pages else context.new_page()
-        return browser, context, page
-
-    context = playwright.chromium.launch_persistent_context(
-        user_data_dir=os.path.join(app_dir(), "chrome-user-data"),
-        channel="chrome",
-        headless=False,
-        args=["--start-maximized"],
-        viewport=None,
-    )
-
-    page = context.pages[0] if context.pages else context.new_page()
-    return None, context, page
 
 
 def main():
@@ -442,6 +509,7 @@ def main():
                 print(f"\n[{index}/{len(tasks)}]")
 
                 try:
+                    page = ensure_page(p, page)
                     result = process_case(page, task)
                 except Exception as e:
                     print("处理失败")
@@ -454,6 +522,11 @@ def main():
                         "status": "失败",
                         "error": str(e),
                     }
+
+                    try:
+                        page = ensure_page(p, page)
+                    except Exception:
+                        pass
 
                 results.append(result)
                 save_results(results)
