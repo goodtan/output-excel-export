@@ -50,13 +50,8 @@ def read_excel():
 
     for row in ws.iter_rows(min_row=2):
         contract_no = row[contract_index].value
-
-        if not contract_no:
-            continue
-
-        tasks.append({
-            "contract_no": str(contract_no).strip(),
-        })
+        if contract_no:
+            tasks.append({"contract_no": str(contract_no).strip()})
 
     print(f"读取到 {len(tasks)} 条数据")
     return tasks
@@ -89,10 +84,8 @@ def save_results(results):
 def get_page(playwright):
     browser = playwright.chromium.connect_over_cdp(CDP_URL)
     context = browser.contexts[0]
-
     pages = [p for p in context.pages if not p.is_closed()]
     page = pages[0] if pages else context.new_page()
-
     return browser, context, page
 
 
@@ -104,37 +97,53 @@ def ensure_page(playwright, page):
 
 
 def click_workbench_tab(page):
-    try:
-        tab_title = page.locator(".ant-tabs-tab .ml-1").filter(has_text="电催工作台").first
-        tab_title.wait_for(state="visible", timeout=10000)
+    tabs = page.locator(".ant-tabs-tab")
+    count = tabs.count()
 
-        text = tab_title.inner_text(timeout=3000).strip()
+    print(f"检测到 {count} 个 tab")
 
-        if text == "电催工作台":
-            tab_title.click(force=True, timeout=10000)
+    for i in range(count):
+        tab = tabs.nth(i)
+        text = tab.inner_text(timeout=3000).strip()
+        print(f"TAB[{i}] => {text}")
+
+        if text.startswith("电催工作台") and "详情" not in text:
+            tab.click(force=True, timeout=10000)
             time.sleep(2)
             print("已切换到电催工作台")
             return
 
-        print("找到的不是电催工作台，继续")
-
-    except Exception as e:
-        print("切换电催工作台失败，可能当前已经在工作台，继续：", e)
+    raise Exception("没有找到电催工作台 TAB")
 
 
 def search_contract(page, contract_no):
-    form_item = page.locator(".ant-form-item").filter(has_text="合同编号").first
-    input_box = form_item.locator("input.ant-input").first
+    page.wait_for_selector("input.ant-input", timeout=30000)
 
-    input_box.fill("", timeout=10000)
-    input_box.fill(contract_no, timeout=10000)
+    inputs = page.locator("input.ant-input")
+    count = inputs.count()
+
+    target = None
+
+    for i in range(count):
+        inp = inputs.nth(i)
+        try:
+            placeholder = inp.get_attribute("placeholder") or ""
+            if "批量搜索" in placeholder:
+                target = inp
+                break
+        except Exception:
+            pass
+
+    if target is None:
+        raise Exception("没找到合同编号输入框")
+
+    target.fill("", timeout=10000)
+    target.fill(contract_no, timeout=10000)
 
     print(f"已输入合同编号：{contract_no}")
 
-    page.locator("button.ant-btn-primary").filter(has_text="查 询").first.click(
-        force=True,
-        timeout=10000,
-    )
+    query_btn = page.locator("button.ant-btn-primary").filter(has_text="查 询").first
+    query_btn.click(force=True, timeout=10000)
 
     print("已点击查询")
 
@@ -171,10 +180,8 @@ def get_current_status(page):
     try:
         status_select = page.locator("div.ant-select.current-status-value").first
         status_select.wait_for(state="visible", timeout=10000)
-
         text = status_select.inner_text(timeout=5000).strip()
         print("当前状态：", text)
-
         return text
     except Exception as e:
         print("获取状态失败：", e)
@@ -192,6 +199,7 @@ def switch_status_to_idle(page):
 
     status_select = page.locator("div.ant-select.current-status-value").first
     status_select.click(force=True, timeout=10000)
+
     time.sleep(1)
 
     dropdown = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").last
