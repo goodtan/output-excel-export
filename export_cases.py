@@ -22,7 +22,6 @@ def app_dir():
 
 INPUT_EXCEL = os.path.join(app_dir(), INPUT_EXCEL)
 OUTPUT_EXCEL = os.path.join(app_dir(), OUTPUT_EXCEL)
-USER_DATA_DIR = os.path.join(app_dir(), "chrome-user-data")
 
 
 def read_excel():
@@ -52,12 +51,8 @@ def read_excel():
             url_index = headers[key]
             break
 
-    if contract_index is None:
-        print("Excel 没找到合同编号列")
-        return []
-
-    if url_index is None:
-        print("Excel 没找到详情URL列")
+    if contract_index is None or url_index is None:
+        print("Excel 必须包含：合同编号、详情URL")
         return []
 
     tasks = []
@@ -82,7 +77,6 @@ def save_results(results):
     wb = Workbook()
     ws = wb.active
     ws.title = "结果"
-
     ws.append(["合同编号", "姓名", "电话号码", "状态", "错误信息"])
 
     for item in results:
@@ -100,42 +94,56 @@ def save_results(results):
 def sign_in(page):
     try:
         btn = page.locator("button.ant-switch").filter(has_text="签入").first
-        btn.click(timeout=8000)
-        time.sleep(2)
+        btn.click(force=True, timeout=10000)
         print("已点击签入")
-    except Exception:
-        print("没有找到签入按钮，可能已经签入，跳过")
+        time.sleep(3)
+    except Exception as e:
+        print("签入失败或已经签入，跳过：", e)
 
 
 def change_current_status(page):
     try:
-        page.locator(".current-status-value").first.click(timeout=8000)
+        page.wait_for_function(
+            """
+            () => {
+                const el = document.querySelector('.current-status-value')
+                return el && !el.className.includes('disabled')
+            }
+            """,
+            timeout=15000
+        )
+
+        page.locator(".current-status-value").first.click(force=True, timeout=10000)
         time.sleep(1)
 
         page.locator(
             ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option",
-            has_text="空闲"
-        ).last.click(timeout=8000)
+            has_text="空闲",
+        ).last.click(force=True, timeout=10000)
 
         time.sleep(1)
-        print("已切换状态：空闲")
+        print("已切换状态为空闲")
+
     except Exception as e:
         print("切换状态失败，跳过：", e)
 
 
 def select_outbound_number(page):
     try:
-        page.locator(".dial-caller-select").first.click(timeout=8000)
+        page.locator(".dial-caller-select").first.wait_for(state="visible", timeout=15000)
+        page.locator(".dial-caller-select").first.click(force=True, timeout=10000)
         time.sleep(1)
 
         page.locator(
             ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option"
-        ).first.click(timeout=8000)
+        ).first.click(force=True, timeout=10000)
 
         time.sleep(1)
         print("已选择外显号码")
+
     except Exception as e:
-        print("选择外显号码失败，跳过：", e)
+        print("选择外显号码失败：", e)
+        raise
 
 
 def get_name_from_page(page):
@@ -165,58 +173,66 @@ def get_real_phone(page):
 
 
 def click_call_btn(page):
-    page.locator(".call-out img[src*='contractMakeCall']").first.click(timeout=10000)
+    page.locator(".call-out img[src*='contractMakeCall']").first.click(
+        force=True,
+        timeout=10000,
+    )
     time.sleep(2)
     print("已点击拨打")
 
 
 def hang_up(page):
     try:
-        page.locator("button.call-button:has-text('挂断')").first.click(force=True, timeout=10000)
+        page.locator("button.call-button:has-text('挂断')").first.click(
+            force=True,
+            timeout=10000,
+        )
     except Exception:
-        page.locator("button.call-button").first.click(force=True, timeout=10000)
+        page.locator("button.call-button").first.click(
+            force=True,
+            timeout=10000,
+        )
 
     time.sleep(1)
     print("已挂断")
 
 
 def select_ant_option(page, input_id, option_text):
-    root = page.locator(
-        f"input#{input_id}"
-    ).locator(
+    root = page.locator(f"input#{input_id}").locator(
         "xpath=ancestor::div[contains(@class,'ant-select')]"
     )
 
-    root.click(timeout=8000)
+    root.click(force=True, timeout=8000)
     time.sleep(0.5)
 
     page.locator(
         ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option",
-        has_text=option_text
-    ).last.click(timeout=8000)
+        has_text=option_text,
+    ).last.click(force=True, timeout=8000)
 
     time.sleep(0.5)
 
 
 def select_first_option(page, input_id):
-    root = page.locator(
-        f"input#{input_id}"
-    ).locator(
+    root = page.locator(f"input#{input_id}").locator(
         "xpath=ancestor::div[contains(@class,'ant-select')]"
     )
 
-    root.click(timeout=8000)
+    root.click(force=True, timeout=8000)
     time.sleep(0.5)
 
     page.locator(
         ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option"
-    ).first.click(timeout=8000)
+    ).first.click(force=True, timeout=8000)
 
     time.sleep(0.5)
 
 
 def submit_form(page):
-    page.locator("button.ant-btn-primary:has-text('提 交')").first.click(timeout=10000)
+    page.locator("button.ant-btn-primary:has-text('提 交')").first.click(
+        force=True,
+        timeout=10000,
+    )
     time.sleep(2)
     print("已提交")
 
@@ -233,11 +249,12 @@ def process_case(page, task):
 
     sign_in(page)
 
+    change_current_status(page)
+
+    select_outbound_number(page)
+
     name = get_name_from_page(page)
     phone = get_real_phone(page)
-
-    change_current_status(page)
-    select_outbound_number(page)
 
     click_call_btn(page)
 
@@ -246,6 +263,7 @@ def process_case(page, task):
     hang_up(page)
 
     select_ant_option(page, "riskType", "失联")
+
     select_first_option(page, "contactResult")
 
     submit_form(page)
@@ -265,16 +283,11 @@ def get_page(playwright):
     if USE_EXISTING_CHROME:
         browser = playwright.chromium.connect_over_cdp(CDP_URL)
         context = browser.contexts[0]
-
-        if context.pages:
-            page = context.pages[0]
-        else:
-            page = context.new_page()
-
+        page = context.pages[0] if context.pages else context.new_page()
         return browser, context, page
 
     context = playwright.chromium.launch_persistent_context(
-        user_data_dir=USER_DATA_DIR,
+        user_data_dir=os.path.join(app_dir(), "chrome-user-data"),
         channel="chrome",
         headless=False,
         args=["--start-maximized"],
@@ -302,7 +315,7 @@ def main():
         browser, context, page = get_page(p)
 
         print("=" * 50)
-        print("请确认当前 Chrome 已登录系统")
+        print("请确认 Chrome 已登录系统")
         print("确认后按回车继续")
         print("=" * 50)
         input()
