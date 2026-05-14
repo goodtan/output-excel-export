@@ -24,6 +24,11 @@ INPUT_EXCEL = os.path.join(app_dir(), INPUT_EXCEL_NAME)
 OUTPUT_EXCEL = os.path.join(app_dir(), OUTPUT_EXCEL_NAME)
 
 
+def pause_exit():
+    print("\n按回车键退出窗口...")
+    input()
+
+
 def read_excel():
     wb = load_workbook(INPUT_EXCEL)
     ws = wb.active
@@ -67,6 +72,7 @@ def save_results(results):
     wb = Workbook()
     ws = wb.active
     ws.title = "结果"
+
     ws.append(["合同编号", "姓名", "电话号码", "状态", "错误信息"])
 
     for item in results:
@@ -78,7 +84,13 @@ def save_results(results):
             item.get("error", ""),
         ])
 
-    wb.save(OUTPUT_EXCEL)
+    try:
+        wb.save(OUTPUT_EXCEL)
+        print(f"结果已保存：{OUTPUT_EXCEL}")
+    except PermissionError:
+        alt_path = OUTPUT_EXCEL.replace(".xlsx", f"_{int(time.time())}.xlsx")
+        wb.save(alt_path)
+        print(f"output.xlsx 正在被打开，已另存为：{alt_path}")
 
 
 def wait_detail_ready(page):
@@ -104,16 +116,39 @@ def wait_detail_ready(page):
 def sign_in(page):
     try:
         btn = page.locator("button.ant-switch").filter(has_text="签入").first
+        btn.wait_for(state="visible", timeout=10000)
+
+        cls = btn.get_attribute("class") or ""
+        aria_checked = btn.get_attribute("aria-checked") or ""
+
+        print("签入按钮状态：", cls, aria_checked)
+
+        if "ant-switch-checked" in cls:
+            print("当前已经签入，跳过")
+            return
+
         btn.click(force=True, timeout=10000)
-        time.sleep(3)
-        print("已点击签入")
+
+        page.wait_for_function(
+            """
+            () => {
+                const btns = [...document.querySelectorAll('button.ant-switch')]
+                const btn = btns.find(b => b.innerText.includes('签入'))
+                return btn && btn.className.includes('ant-switch-checked')
+            }
+            """,
+            timeout=15000,
+        )
+
+        time.sleep(2)
+        print("签入成功")
+
     except Exception as e:
         print("签入失败或已经签入，跳过：", e)
 
 
 def change_current_status(page):
     try:
-        # 只找真正可见的状态下拉 div，避开隐藏 span.current-status-value-disabled
         status_select = page.locator("div.ant-select.current-status-value").first
         status_select.wait_for(state="visible", timeout=20000)
 
@@ -127,9 +162,14 @@ def change_current_status(page):
         status_select.click(force=True, timeout=10000)
         time.sleep(1)
 
-        page.locator(
-            ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option",
-            has_text="空闲",
+        dropdown = page.locator(
+            ".ant-select-dropdown:not(.ant-select-dropdown-hidden)"
+        ).last
+
+        dropdown.wait_for(state="visible", timeout=10000)
+
+        dropdown.locator(".ant-select-item-option").filter(
+            has_text="空闲"
         ).last.click(force=True, timeout=10000)
 
         time.sleep(2)
@@ -152,27 +192,39 @@ def change_current_status(page):
 
 
 def select_outbound_number(page):
-    page.locator("div.ant-select.dial-caller-select").first.wait_for(
-        state="visible",
-        timeout=20000,
-    )
+    try:
+        caller_select = page.locator("div.ant-select.dial-caller-select").first
+        caller_select.wait_for(state="visible", timeout=20000)
 
-    caller_select = page.locator("div.ant-select.dial-caller-select").first
-    current_text = caller_select.inner_text(timeout=5000).strip()
+        current_text = caller_select.inner_text(timeout=5000).strip()
+        print("当前外显号码：", current_text)
 
-    if current_text and "请选择" not in current_text:
-        print("外显号码已存在：", current_text)
-        return
+        if current_text and "请选择" not in current_text:
+            print("外显号码已存在，跳过选择")
+            return
 
-    caller_select.click(force=True, timeout=10000)
-    time.sleep(1)
+        caller_select.click(force=True, timeout=10000)
+        time.sleep(1)
 
-    page.locator(
-        ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option"
-    ).first.click(force=True, timeout=10000)
+        dropdown = page.locator(
+            ".ant-select-dropdown:not(.ant-select-dropdown-hidden)"
+        ).last
 
-    time.sleep(1)
-    print("已选择外显号码")
+        dropdown.wait_for(state="visible", timeout=10000)
+
+        option = dropdown.locator(".ant-select-item-option").filter(
+            has_not_text="无数据"
+        ).first
+
+        option.scroll_into_view_if_needed(timeout=5000)
+        option.click(force=True, timeout=10000)
+
+        time.sleep(1)
+        print("已选择外显号码")
+
+    except Exception as e:
+        print("选择外显号码失败：", e)
+        raise
 
 
 def get_name_from_page(page):
@@ -209,7 +261,6 @@ def click_call_btn(page):
 
     time.sleep(1)
 
-    # 有些页面点联系人电话后，需要再点顶部绿色“呼叫”
     try:
         call_btn = page.locator("button.call-button:has-text('呼叫')").first
         if call_btn.is_visible(timeout=3000):
@@ -222,6 +273,7 @@ def click_call_btn(page):
 
 
 def hang_up(page):
+    print("等待 3 秒后挂断...")
     time.sleep(3)
 
     page.locator("button.call-button:has-text('挂断')").first.click(
@@ -273,8 +325,14 @@ def select_ant_option_by_label(page, label_text, option_text=None):
     select_root.click(force=True, timeout=10000)
     time.sleep(0.5)
 
-    options = page.locator(
-        ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option"
+    dropdown = page.locator(
+        ".ant-select-dropdown:not(.ant-select-dropdown-hidden)"
+    ).last
+
+    dropdown.wait_for(state="visible", timeout=10000)
+
+    options = dropdown.locator(".ant-select-item-option").filter(
+        has_not_text="无数据"
     )
 
     if option_text:
@@ -358,54 +416,58 @@ def get_page(playwright):
 
 
 def main():
-    if not os.path.exists(INPUT_EXCEL):
-        print(f"没找到 input.xlsx：{INPUT_EXCEL}")
-        return
+    try:
+        if not os.path.exists(INPUT_EXCEL):
+            print(f"没找到 input.xlsx：{INPUT_EXCEL}")
+            return
 
-    tasks = read_excel()
+        tasks = read_excel()
 
-    if not tasks:
-        print("Excel 没有数据")
-        return
+        if not tasks:
+            print("Excel 没有数据")
+            return
 
-    results = []
+        results = []
 
-    with sync_playwright() as p:
-        browser, context, page = get_page(p)
+        with sync_playwright() as p:
+            browser, context, page = get_page(p)
 
-        print("=" * 50)
-        print("请确认 Chrome 已登录系统")
-        print("确认后按回车继续")
-        print("=" * 50)
-        input()
+            print("=" * 50)
+            print("请确认 Chrome 已登录系统")
+            print("确认后按回车继续")
+            print("=" * 50)
+            input()
 
-        for index, task in enumerate(tasks, start=1):
-            print(f"\n[{index}/{len(tasks)}]")
+            for index, task in enumerate(tasks, start=1):
+                print(f"\n[{index}/{len(tasks)}]")
 
-            try:
-                result = process_case(page, task)
-            except Exception as e:
-                print("处理失败")
-                print(traceback.format_exc())
+                try:
+                    result = process_case(page, task)
+                except Exception as e:
+                    print("处理失败")
+                    print(traceback.format_exc())
 
-                result = {
-                    "contract_no": task.get("contract_no", ""),
-                    "name": "",
-                    "phone": "",
-                    "status": "失败",
-                    "error": str(e),
-                }
+                    result = {
+                        "contract_no": task.get("contract_no", ""),
+                        "name": "",
+                        "phone": "",
+                        "status": "失败",
+                        "error": str(e),
+                    }
 
-            results.append(result)
-            save_results(results)
+                results.append(result)
+                save_results(results)
 
-        if browser:
-            browser.close()
-        else:
-            context.close()
+            print("\n全部完成")
+            print(f"结果文件：{OUTPUT_EXCEL}")
+            print("Chrome 不会关闭，exe 窗口也不会自动关闭")
 
-    print("\n全部完成")
-    print(f"结果文件：{OUTPUT_EXCEL}")
+    except Exception:
+        print("程序发生未捕获异常：")
+        print(traceback.format_exc())
+
+    finally:
+        pause_exit()
 
 
 if __name__ == "__main__":
