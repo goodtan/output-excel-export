@@ -11,7 +11,6 @@ from playwright.sync_api import sync_playwright
 INPUT_EXCEL_NAME = "input.xlsx"
 OUTPUT_EXCEL_NAME = "output.xlsx"
 
-USE_EXISTING_CHROME = True
 CDP_URL = "http://127.0.0.1:9222"
 
 
@@ -42,27 +41,22 @@ def read_excel():
     print("当前识别到的表头：", list(headers.keys()))
 
     contract_keys = ["合同编号", "合同号", "contractNo", "单号"]
-    url_keys = ["详情URL", "详情页URL", "URL", "url", "链接", "详情页链接"]
-
     contract_index = next((headers[k] for k in contract_keys if k in headers), None)
-    url_index = next((headers[k] for k in url_keys if k in headers), None)
 
-    if contract_index is None or url_index is None:
-        print("Excel 必须包含：合同编号、详情URL")
+    if contract_index is None:
+        print("Excel 必须包含：合同编号")
         return []
 
     tasks = []
 
     for row in ws.iter_rows(min_row=2):
         contract_no = row[contract_index].value
-        detail_url = row[url_index].value
 
-        if not contract_no or not detail_url:
+        if not contract_no:
             continue
 
         tasks.append({
             "contract_no": str(contract_no).strip(),
-            "detail_url": str(detail_url).strip(),
         })
 
     print(f"读取到 {len(tasks)} 条数据")
@@ -73,7 +67,6 @@ def save_results(results):
     wb = Workbook()
     ws = wb.active
     ws.title = "结果"
-
     ws.append(["合同编号", "姓名", "电话号码", "状态", "错误信息"])
 
     for item in results:
@@ -105,14 +98,42 @@ def get_page(playwright):
 
 
 def ensure_page(playwright, page):
-    try:
-        if page is None or page.is_closed():
-            print("页面已关闭，正在重新连接 Chrome...")
-            _, _, page = get_page(playwright)
-        return page
-    except Exception:
-        print("重新连接 Chrome 失败，请确认 Chrome 远程调试窗口还开着")
-        raise
+    if page is None or page.is_closed():
+        print("页面已关闭，重新连接 Chrome...")
+        _, _, page = get_page(playwright)
+    return page
+
+
+def click_workbench_tab(page):
+    tab = page.locator(".ant-tabs-tab").filter(has_text="电催工作台").first
+    tab.click(force=True, timeout=10000)
+    time.sleep(2)
+    print("已切换到电催工作台")
+
+
+def search_contract(page, contract_no):
+    form_item = page.locator(".ant-form-item").filter(has_text="合同编号").first
+    input_box = form_item.locator("input.ant-input").first
+
+    input_box.fill("", timeout=10000)
+    input_box.fill(contract_no, timeout=10000)
+
+    print(f"已输入合同编号：{contract_no}")
+
+    page.locator("button:has-text('查 询'), button:has-text('查询')").first.click(
+        force=True,
+        timeout=10000,
+    )
+
+    print("已点击查询")
+
+    page.wait_for_selector(f"tr[data-row-key='{contract_no}']", timeout=30000)
+
+    row = page.locator(f"tr[data-row-key='{contract_no}']").first
+    row.locator("a", has_text=contract_no).first.click(force=True, timeout=10000)
+
+    print("已点击合同编号进入详情")
+    time.sleep(3)
 
 
 def wait_detail_ready(page):
@@ -135,61 +156,40 @@ def wait_detail_ready(page):
     print("详情页数据已加载")
 
 
-def sign_in(page):
+def get_current_status(page):
     try:
-        btn = page.locator("button.ant-switch").filter(has_text="签入").first
-        btn.wait_for(state="visible", timeout=10000)
+        status_select = page.locator("div.ant-select.current-status-value").first
+        status_select.wait_for(state="visible", timeout=10000)
 
-        cls = btn.get_attribute("class") or ""
-        print("签入按钮状态：", cls)
+        text = status_select.inner_text(timeout=5000).strip()
+        print("当前状态：", text)
 
-        if "ant-switch-checked" in cls:
-            print("当前已经签入")
-            return
-
-        btn.click(force=True, timeout=10000)
-
-        page.wait_for_function(
-            """
-            () => {
-                const btns = [...document.querySelectorAll('button.ant-switch')]
-                const btn = btns.find(b => b.innerText.includes('签入'))
-                return btn && btn.className.includes('ant-switch-checked')
-            }
-            """,
-            timeout=15000,
-        )
-
-        time.sleep(2)
-        print("签入成功")
-
+        return text
     except Exception as e:
-        print("签入失败或已经签入，跳过：", e)
+        print("获取状态失败：", e)
+        return ""
 
 
-def change_current_status(page):
-    status_select = page.locator("div.ant-select.current-status-value").first
-    status_select.wait_for(state="visible", timeout=20000)
-
-    current_text = status_select.inner_text(timeout=5000)
-    print("当前状态：", current_text)
+def switch_status_to_idle(page):
+    current_text = get_current_status(page)
 
     if "空闲" in current_text:
-        print("当前已是空闲")
+        print("当前已经是空闲状态")
         return
 
+    print("当前不是空闲，开始切换为空闲...")
+
+    status_select = page.locator("div.ant-select.current-status-value").first
     status_select.click(force=True, timeout=10000)
+
     time.sleep(1)
 
     dropdown = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").last
     dropdown.wait_for(state="visible", timeout=10000)
 
-    dropdown.locator(".ant-select-item-option").filter(has_text="空闲").last.click(
-        force=True,
-        timeout=10000,
-    )
-
-    time.sleep(2)
+    idle_option = dropdown.locator(".ant-select-item-option").filter(has_text="空闲").last
+    idle_option.scroll_into_view_if_needed(timeout=5000)
+    idle_option.click(force=True, timeout=10000)
 
     page.wait_for_function(
         """
@@ -201,19 +201,33 @@ def change_current_status(page):
         timeout=15000,
     )
 
-    print("已切换状态为空闲")
+    time.sleep(2)
+    print("状态已切换为空闲")
 
 
-def ensure_idle(page):
-    for _ in range(3):
+def ensure_idle_status(page):
+    for i in range(3):
         try:
-            change_current_status(page)
-            return
-        except Exception as e:
-            print("状态不是空闲，重试切换：", e)
-            time.sleep(2)
+            current = get_current_status(page)
 
-    raise Exception("状态无法切换为空闲")
+            if "空闲" in current:
+                print("状态正常：空闲")
+                return
+
+            switch_status_to_idle(page)
+
+            current = get_current_status(page)
+
+            if "空闲" in current:
+                print("切换成功")
+                return
+
+        except Exception as e:
+            print(f"第 {i + 1} 次切换失败：", e)
+
+        time.sleep(2)
+
+    raise Exception("无法切换为空闲状态")
 
 
 def select_outbound_number(page):
@@ -225,7 +239,6 @@ def select_outbound_number(page):
 
     if current_text and "请选择" not in current_text:
         print("外显号码已存在")
-        ensure_idle(page)
         return
 
     caller_select.click(force=True, timeout=10000)
@@ -235,13 +248,10 @@ def select_outbound_number(page):
     dropdown.wait_for(state="visible", timeout=10000)
 
     option = dropdown.locator(".ant-select-item-option").filter(has_not_text="无数据").first
-    option.scroll_into_view_if_needed(timeout=5000)
     option.click(force=True, timeout=10000)
 
     time.sleep(1)
     print("已选择外显号码")
-
-    ensure_idle(page)
 
 
 def get_name_from_page(page):
@@ -253,6 +263,7 @@ def get_name_from_page(page):
                 return line
     except Exception:
         pass
+
     return ""
 
 
@@ -275,8 +286,6 @@ def clean_phone(phone):
 
 
 def click_call_btn(page):
-    ensure_idle(page)
-
     page.locator(".call-out img[src*='contractMakeCall']").first.click(
         force=True,
         timeout=10000,
@@ -308,16 +317,6 @@ def hang_up(page):
     print("已挂断")
 
 
-def wait_call_record_form_ready(page):
-    page.wait_for_selector("#riskType", timeout=30000)
-    page.wait_for_selector("#contactResult", timeout=30000)
-    page.wait_for_selector("#collectType", timeout=30000)
-    page.wait_for_selector("#touch", timeout=30000)
-
-    time.sleep(1)
-    print("催记录入表单已就绪")
-
-
 def get_visible_form_item_by_label(page, label_text):
     items = page.locator(f".record .ant-form-item:has(label[title='{label_text}'])")
     count = items.count()
@@ -336,7 +335,6 @@ def get_visible_form_item_by_label(page, label_text):
 
 def select_ant_option_by_label(page, label_text, option_text=None):
     form_item = get_visible_form_item_by_label(page, label_text)
-
     form_item.scroll_into_view_if_needed(timeout=8000)
 
     select_root = form_item.locator(".ant-select:not(.ant-select-disabled)").first
@@ -395,39 +393,44 @@ def fill_contact_time(page):
     print("已填写联络时间：", now_text)
 
 
+def wait_call_record_form_ready(page):
+    page.wait_for_selector("#riskType", timeout=30000)
+    page.wait_for_selector("#contactResult", timeout=30000)
+    page.wait_for_selector("#collectType", timeout=30000)
+    page.wait_for_selector("#touch", timeout=30000)
+
+    time.sleep(1)
+    print("催记录入表单已就绪")
+
+
 def fill_collection_form(page, phone):
     wait_call_record_form_ready(page)
 
-    # 催收形式：外呼
     try:
         select_ant_option_by_label(page, "催收形式", "外呼")
     except Exception as e:
         print("催收形式选择失败，继续：", e)
 
-    # 电话
     phone_value = clean_phone(phone)
+
     if phone_value:
         try:
             fill_input_by_label(page, "电话", phone_value)
         except Exception as e:
             print("电话填写失败，继续：", e)
 
-    # 风险分类：失联
     select_ant_option_by_label(page, "风险分类", "失联")
 
-    # 是否触达：未触达
     try:
         select_ant_option_by_label(page, "是否触达", "未触达")
     except Exception as e:
         print("是否触达选择失败，继续：", e)
 
-    # 联络时间
     try:
         fill_contact_time(page)
     except Exception as e:
         print("联络时间填写失败，继续：", e)
 
-    # 联络结果：随便选一个
     select_ant_option_by_label(page, "联络结果")
 
 
@@ -444,31 +447,41 @@ def submit_form(page):
 
 def process_case(page, task):
     contract_no = task["contract_no"]
-    detail_url = task["detail_url"]
 
     print(f"开始处理：{contract_no}")
 
-    page.goto(detail_url, wait_until="domcontentloaded")
+    # 1. 切到电催工作台
+    click_workbench_tab(page)
 
+    # 2. 搜索合同
+    search_contract(page, contract_no)
+
+    # 3. 进入详情页
     wait_detail_ready(page)
 
-    sign_in(page)
+    # 4. 检查状态，不是空闲就切换为空闲
+    ensure_idle_status(page)
 
-    ensure_idle(page)
-
+    # 5. 选择外显号码
     select_outbound_number(page)
 
-    ensure_idle(page)
+    # 6. 选择外显后再检查一次状态
+    ensure_idle_status(page)
 
+    # 7. 获取姓名、电话
     name = get_name_from_page(page)
     phone = get_real_phone(page)
 
+    # 8. 拨打
     click_call_btn(page)
 
+    # 9. 等 3 秒挂断
     hang_up(page)
 
+    # 10. 填写催记录入
     fill_collection_form(page, phone)
 
+    # 11. 提交
     submit_form(page)
 
     print(f"完成：{contract_no}")
@@ -500,7 +513,7 @@ def main():
             browser, context, page = get_page(p)
 
             print("=" * 50)
-            print("请确认 Chrome 已登录系统")
+            print("请确认 Chrome 已登录系统，并停留在电催工作台页面")
             print("确认后按回车继续")
             print("=" * 50)
             input()
@@ -511,6 +524,7 @@ def main():
                 try:
                     page = ensure_page(p, page)
                     result = process_case(page, task)
+
                 except Exception as e:
                     print("处理失败")
                     print(traceback.format_exc())
