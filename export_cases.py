@@ -7,8 +7,8 @@ from openpyxl import load_workbook, Workbook
 from playwright.sync_api import sync_playwright
 
 
-INPUT_EXCEL = "input.xlsx"
-OUTPUT_EXCEL = "output.xlsx"
+INPUT_EXCEL_NAME = "input.xlsx"
+OUTPUT_EXCEL_NAME = "output.xlsx"
 
 USE_EXISTING_CHROME = True
 CDP_URL = "http://127.0.0.1:9222"
@@ -20,8 +20,8 @@ def app_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
-INPUT_EXCEL = os.path.join(app_dir(), INPUT_EXCEL)
-OUTPUT_EXCEL = os.path.join(app_dir(), OUTPUT_EXCEL)
+INPUT_EXCEL = os.path.join(app_dir(), INPUT_EXCEL_NAME)
+OUTPUT_EXCEL = os.path.join(app_dir(), OUTPUT_EXCEL_NAME)
 
 
 def read_excel():
@@ -38,18 +38,8 @@ def read_excel():
     contract_keys = ["合同编号", "合同号", "contractNo", "单号"]
     url_keys = ["详情URL", "详情页URL", "URL", "url", "链接", "详情页链接"]
 
-    contract_index = None
-    url_index = None
-
-    for key in contract_keys:
-        if key in headers:
-            contract_index = headers[key]
-            break
-
-    for key in url_keys:
-        if key in headers:
-            url_index = headers[key]
-            break
+    contract_index = next((headers[k] for k in contract_keys if k in headers), None)
+    url_index = next((headers[k] for k in url_keys if k in headers), None)
 
     if contract_index is None or url_index is None:
         print("Excel 必须包含：合同编号、详情URL")
@@ -91,12 +81,32 @@ def save_results(results):
     wb.save(OUTPUT_EXCEL)
 
 
+def wait_detail_ready(page):
+    page.wait_for_selector(".record", timeout=30000)
+    page.wait_for_selector(".call-out", timeout=30000)
+
+    page.wait_for_function(
+        """
+        () => {
+            const text = document.body.innerText || ''
+            return text.includes('合同编号') &&
+                   text.includes('承租人') &&
+                   text.includes('催记录入')
+        }
+        """,
+        timeout=30000,
+    )
+
+    time.sleep(2)
+    print("详情页数据已加载")
+
+
 def sign_in(page):
     try:
         btn = page.locator("button.ant-switch").filter(has_text="签入").first
         btn.click(force=True, timeout=10000)
-        print("已点击签入")
         time.sleep(3)
+        print("已点击签入")
     except Exception as e:
         print("签入失败或已经签入，跳过：", e)
 
@@ -110,7 +120,7 @@ def change_current_status(page):
                 return el && !el.className.includes('disabled')
             }
             """,
-            timeout=15000
+            timeout=20000,
         )
 
         page.locator(".current-status-value").first.click(force=True, timeout=10000)
@@ -123,27 +133,21 @@ def change_current_status(page):
 
         time.sleep(1)
         print("已切换状态为空闲")
-
     except Exception as e:
         print("切换状态失败，跳过：", e)
 
 
 def select_outbound_number(page):
-    try:
-        page.locator(".dial-caller-select").first.wait_for(state="visible", timeout=15000)
-        page.locator(".dial-caller-select").first.click(force=True, timeout=10000)
-        time.sleep(1)
+    page.locator(".dial-caller-select").first.wait_for(state="visible", timeout=20000)
+    page.locator(".dial-caller-select").first.click(force=True, timeout=10000)
+    time.sleep(1)
 
-        page.locator(
-            ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option"
-        ).first.click(force=True, timeout=10000)
+    page.locator(
+        ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option"
+    ).first.click(force=True, timeout=10000)
 
-        time.sleep(1)
-        print("已选择外显号码")
-
-    except Exception as e:
-        print("选择外显号码失败：", e)
-        raise
+    time.sleep(1)
+    print("已选择外显号码")
 
 
 def get_name_from_page(page):
@@ -177,62 +181,78 @@ def click_call_btn(page):
         force=True,
         timeout=10000,
     )
-    time.sleep(2)
+    time.sleep(1)
     print("已点击拨打")
 
 
 def hang_up(page):
-    try:
-        page.locator("button.call-button:has-text('挂断')").first.click(
-            force=True,
-            timeout=10000,
-        )
-    except Exception:
-        page.locator("button.call-button").first.click(
-            force=True,
-            timeout=10000,
-        )
-
+    page.locator("button.call-button:has-text('挂断')").first.click(
+        force=True,
+        timeout=10000,
+    )
     time.sleep(1)
     print("已挂断")
 
 
-def select_ant_option(page, input_id, option_text):
-    root = page.locator(f"input#{input_id}").locator(
-        "xpath=ancestor::div[contains(@class,'ant-select')]"
+def wait_call_record_form_ready(page):
+    page.wait_for_selector("#riskType", timeout=30000)
+    page.wait_for_selector("#contactResult", timeout=30000)
+
+    page.wait_for_function(
+        """
+        () => {
+            const risk = document.querySelector('#riskType')
+            const contactResult = document.querySelector('#contactResult')
+            const text = document.body.innerText || ''
+
+            return risk &&
+                   contactResult &&
+                   text.includes('催收形式') &&
+                   text.includes('外呼') &&
+                   text.includes('催收对象') &&
+                   text.includes('承租人') &&
+                   text.includes('电话')
+        }
+        """,
+        timeout=30000,
     )
 
-    root.click(force=True, timeout=8000)
+    time.sleep(1)
+    print("催记录入表单已就绪")
+
+
+def select_ant_option_by_label(page, label_text, option_text=None):
+    form_item = page.locator(
+        f".ant-form-item:has(label[title='{label_text}'])"
+    ).filter(
+        has_not=page.locator("[style*='display: none']")
+    ).last
+
+    form_item.scroll_into_view_if_needed(timeout=8000)
+
+    select_root = form_item.locator(".ant-select:not(.ant-select-disabled)").first
+    select_root.click(force=True, timeout=10000)
     time.sleep(0.5)
 
-    page.locator(
-        ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option",
-        has_text=option_text,
-    ).last.click(force=True, timeout=8000)
-
-    time.sleep(0.5)
-
-
-def select_first_option(page, input_id):
-    root = page.locator(f"input#{input_id}").locator(
-        "xpath=ancestor::div[contains(@class,'ant-select')]"
-    )
-
-    root.click(force=True, timeout=8000)
-    time.sleep(0.5)
-
-    page.locator(
+    options = page.locator(
         ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option"
-    ).first.click(force=True, timeout=8000)
+    )
+
+    if option_text:
+        options.filter(has_text=option_text).last.click(force=True, timeout=10000)
+    else:
+        options.first.click(force=True, timeout=10000)
 
     time.sleep(0.5)
 
 
 def submit_form(page):
-    page.locator("button.ant-btn-primary:has-text('提 交')").first.click(
-        force=True,
-        timeout=10000,
-    )
+    record = page.locator(".record").last
+    submit_btn = record.locator("button.ant-btn-primary:has-text('提 交')").last
+
+    submit_btn.scroll_into_view_if_needed(timeout=8000)
+    submit_btn.click(force=True, timeout=10000)
+
     time.sleep(2)
     print("已提交")
 
@@ -244,8 +264,8 @@ def process_case(page, task):
     print(f"开始处理：{contract_no}")
 
     page.goto(detail_url, wait_until="domcontentloaded")
-    page.wait_for_load_state("networkidle", timeout=30000)
-    time.sleep(3)
+
+    wait_detail_ready(page)
 
     sign_in(page)
 
@@ -262,9 +282,11 @@ def process_case(page, task):
 
     hang_up(page)
 
-    select_ant_option(page, "riskType", "失联")
+    wait_call_record_form_ready(page)
 
-    select_first_option(page, "contactResult")
+    select_ant_option_by_label(page, "风险分类", "失联")
+
+    select_ant_option_by_label(page, "联络结果")
 
     submit_form(page)
 
