@@ -10,7 +10,6 @@ from playwright.sync_api import sync_playwright
 
 INPUT_EXCEL_NAME = "input.xlsx"
 OUTPUT_EXCEL_NAME = "output.xlsx"
-
 CDP_URL = "http://127.0.0.1:9222"
 
 
@@ -105,10 +104,22 @@ def ensure_page(playwright, page):
 
 
 def click_workbench_tab(page):
-    tab = page.locator(".ant-tabs-tab").filter(has_text="电催工作台").first
-    tab.click(force=True, timeout=10000)
-    time.sleep(2)
-    print("已切换到电催工作台")
+    try:
+        tab_title = page.locator(".ant-tabs-tab .ml-1").filter(has_text="电催工作台").first
+        tab_title.wait_for(state="visible", timeout=10000)
+
+        text = tab_title.inner_text(timeout=3000).strip()
+
+        if text == "电催工作台":
+            tab_title.click(force=True, timeout=10000)
+            time.sleep(2)
+            print("已切换到电催工作台")
+            return
+
+        print("找到的不是电催工作台，继续")
+
+    except Exception as e:
+        print("切换电催工作台失败，可能当前已经在工作台，继续：", e)
 
 
 def search_contract(page, contract_no):
@@ -120,7 +131,7 @@ def search_contract(page, contract_no):
 
     print(f"已输入合同编号：{contract_no}")
 
-    page.locator("button:has-text('查 询'), button:has-text('查询')").first.click(
+    page.locator("button.ant-btn-primary").filter(has_text="查 询").first.click(
         force=True,
         timeout=10000,
     )
@@ -181,7 +192,6 @@ def switch_status_to_idle(page):
 
     status_select = page.locator("div.ant-select.current-status-value").first
     status_select.click(force=True, timeout=10000)
-
     time.sleep(1)
 
     dropdown = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").last
@@ -450,38 +460,27 @@ def process_case(page, task):
 
     print(f"开始处理：{contract_no}")
 
-    # 1. 切到电催工作台
     click_workbench_tab(page)
 
-    # 2. 搜索合同
     search_contract(page, contract_no)
 
-    # 3. 进入详情页
     wait_detail_ready(page)
 
-    # 4. 检查状态，不是空闲就切换为空闲
     ensure_idle_status(page)
 
-    # 5. 选择外显号码
     select_outbound_number(page)
 
-    # 6. 选择外显后再检查一次状态
     ensure_idle_status(page)
 
-    # 7. 获取姓名、电话
     name = get_name_from_page(page)
     phone = get_real_phone(page)
 
-    # 8. 拨打
     click_call_btn(page)
 
-    # 9. 等 3 秒挂断
     hang_up(page)
 
-    # 10. 填写催记录入
     fill_collection_form(page, phone)
 
-    # 11. 提交
     submit_form(page)
 
     print(f"完成：{contract_no}")
