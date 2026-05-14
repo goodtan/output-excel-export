@@ -113,17 +113,18 @@ def sign_in(page):
 
 def change_current_status(page):
     try:
-        page.wait_for_function(
-            """
-            () => {
-                const el = document.querySelector('.current-status-value')
-                return el && !el.className.includes('disabled')
-            }
-            """,
-            timeout=20000,
-        )
+        # 只找真正可见的状态下拉 div，避开隐藏 span.current-status-value-disabled
+        status_select = page.locator("div.ant-select.current-status-value").first
+        status_select.wait_for(state="visible", timeout=20000)
 
-        page.locator(".current-status-value").first.click(force=True, timeout=10000)
+        current_text = status_select.inner_text(timeout=5000)
+        print("当前状态：", current_text)
+
+        if "空闲" in current_text:
+            print("当前已是空闲，跳过切换")
+            return
+
+        status_select.click(force=True, timeout=10000)
         time.sleep(1)
 
         page.locator(
@@ -131,15 +132,39 @@ def change_current_status(page):
             has_text="空闲",
         ).last.click(force=True, timeout=10000)
 
-        time.sleep(1)
+        time.sleep(2)
+
+        page.wait_for_function(
+            """
+            () => {
+                const el = document.querySelector('div.ant-select.current-status-value')
+                return el && el.innerText.includes('空闲')
+            }
+            """,
+            timeout=15000,
+        )
+
         print("已切换状态为空闲")
+
     except Exception as e:
-        print("切换状态失败，跳过：", e)
+        print("切换状态失败：", e)
+        raise
 
 
 def select_outbound_number(page):
-    page.locator(".dial-caller-select").first.wait_for(state="visible", timeout=20000)
-    page.locator(".dial-caller-select").first.click(force=True, timeout=10000)
+    page.locator("div.ant-select.dial-caller-select").first.wait_for(
+        state="visible",
+        timeout=20000,
+    )
+
+    caller_select = page.locator("div.ant-select.dial-caller-select").first
+    current_text = caller_select.inner_text(timeout=5000).strip()
+
+    if current_text and "请选择" not in current_text:
+        print("外显号码已存在：", current_text)
+        return
+
+    caller_select.click(force=True, timeout=10000)
     time.sleep(1)
 
     page.locator(
@@ -181,15 +206,29 @@ def click_call_btn(page):
         force=True,
         timeout=10000,
     )
+
     time.sleep(1)
+
+    # 有些页面点联系人电话后，需要再点顶部绿色“呼叫”
+    try:
+        call_btn = page.locator("button.call-button:has-text('呼叫')").first
+        if call_btn.is_visible(timeout=3000):
+            call_btn.click(force=True, timeout=10000)
+            print("已点击顶部呼叫")
+    except Exception:
+        pass
+
     print("已点击拨打")
 
 
 def hang_up(page):
+    time.sleep(3)
+
     page.locator("button.call-button:has-text('挂断')").first.click(
         force=True,
-        timeout=10000,
+        timeout=15000,
     )
+
     time.sleep(1)
     print("已挂断")
 
@@ -277,8 +316,6 @@ def process_case(page, task):
     phone = get_real_phone(page)
 
     click_call_btn(page)
-
-    time.sleep(3)
 
     hang_up(page)
 
