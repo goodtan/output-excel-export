@@ -47,7 +47,6 @@ def read_excel():
         return []
 
     tasks = []
-
     for row in ws.iter_rows(min_row=2):
         contract_no = row[contract_index].value
         if contract_no:
@@ -99,7 +98,6 @@ def ensure_page(playwright, page):
 def click_workbench_tab(page):
     tabs = page.locator(".ant-tabs-tab")
     count = tabs.count()
-
     print(f"检测到 {count} 个 tab")
 
     for i in range(count):
@@ -122,52 +120,41 @@ def search_contract(page, contract_no):
     page.bring_to_front()
     time.sleep(1)
 
-    # 直接找 placeholder
     contract_input = page.locator(
         'input.ant-input[placeholder*="批量搜索"]:not([disabled])'
     ).first
 
     contract_input.wait_for(timeout=30000)
-
     contract_input.scroll_into_view_if_needed(timeout=5000)
-
     contract_input.click(force=True, timeout=10000)
-
-    # 清空
     contract_input.press("Control+A")
     contract_input.press("Backspace")
-
-    # 输入
     contract_input.fill(contract_no, timeout=10000)
 
     print(f"已输入合同编号：{contract_no}")
 
-    # 查询按钮
-    query_btn = page.locator(
-        'button.ant-btn-primary:has-text("查 询")'
-    ).first
-
+    query_btn = page.locator('button.ant-btn-primary:has-text("查 询")').first
     query_btn.click(force=True, timeout=10000)
-
     print("已点击查询")
 
-    # 等待表格出现
     row_selector = f'tr[data-row-key="{contract_no}"]'
-
     page.wait_for_selector(row_selector, timeout=30000)
 
     row = page.locator(row_selector).first
+    row.scroll_into_view_if_needed(timeout=5000)
+    time.sleep(1)
 
-    # 点击合同编号
     contract_link = row.locator("a", has_text=contract_no).first
 
-    contract_link.scroll_into_view_if_needed(timeout=5000)
+    try:
+        contract_link.click(force=True, timeout=8000)
+        print("已点击合同编号")
+    except Exception as e:
+        print("点击 a 标签失败，改为双击整行：", e)
+        row.dblclick(force=True, timeout=8000)
 
-    contract_link.click(force=True, timeout=10000)
-
-    print("已点击合同编号进入详情")
-
-    time.sleep(3)
+    time.sleep(5)
+    print("已尝试进入详情")
 
 
 def wait_detail_ready(page):
@@ -178,9 +165,7 @@ def wait_detail_ready(page):
         """
         () => {
             const text = document.body.innerText || ''
-            return text.includes('合同编号') &&
-                   text.includes('承租人') &&
-                   text.includes('催记录入')
+            return text.includes('承租人') && text.includes('催记录入')
         }
         """,
         timeout=30000,
@@ -213,7 +198,6 @@ def switch_status_to_idle(page):
 
     status_select = page.locator("div.ant-select.current-status-value").first
     status_select.click(force=True, timeout=10000)
-
     time.sleep(1)
 
     dropdown = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").last
@@ -249,7 +233,6 @@ def ensure_idle_status(page):
             switch_status_to_idle(page)
 
             current = get_current_status(page)
-
             if "空闲" in current:
                 print("切换成功")
                 return
@@ -295,7 +278,6 @@ def get_name_from_page(page):
                 return line
     except Exception:
         pass
-
     return ""
 
 
@@ -311,10 +293,6 @@ def get_real_phone(page):
         return text.replace("\n", " ").strip()
     except Exception:
         return ""
-
-
-def clean_phone(phone):
-    return "".join(ch for ch in phone if ch.isdigit() or ch == "*")
 
 
 def click_call_btn(page):
@@ -349,8 +327,19 @@ def hang_up(page):
     print("已挂断")
 
 
-def get_visible_form_item_by_label(page, label_text):
-    items = page.locator(f".record .ant-form-item:has(label[title='{label_text}'])")
+def wait_call_record_form_ready(page):
+    form = page.locator(".add-collection-record").last
+    form.wait_for(timeout=30000)
+
+    risk = form.locator("#riskType").last
+    risk.wait_for(timeout=30000)
+
+    print("催记录入表单已就绪")
+
+
+def get_form_item_by_label(page, label_text):
+    form = page.locator(".add-collection-record").last
+    items = form.locator(f'.ant-form-item:has(label[title="{label_text}"])')
     count = items.count()
 
     for i in range(count - 1, -1, -1):
@@ -360,114 +349,54 @@ def get_visible_form_item_by_label(page, label_text):
             if box and box["width"] > 0 and box["height"] > 0:
                 return item
         except Exception:
-            continue
+            pass
 
     return items.last
 
 
 def select_ant_option_by_label(page, label_text, option_text=None):
-    form_item = get_visible_form_item_by_label(page, label_text)
-    form_item.scroll_into_view_if_needed(timeout=8000)
+    item = get_form_item_by_label(page, label_text)
+    item.scroll_into_view_if_needed(timeout=8000)
 
-    select_root = form_item.locator(".ant-select:not(.ant-select-disabled)").first
+    select_root = item.locator(".ant-select:not(.ant-select-disabled)").last
     select_root.click(force=True, timeout=10000)
-    time.sleep(0.5)
+
+    time.sleep(1)
 
     dropdown = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").last
-    dropdown.wait_for(state="visible", timeout=10000)
+    dropdown.wait_for(timeout=10000)
 
     options = dropdown.locator(".ant-select-item-option").filter(has_not_text="无数据")
 
     if option_text:
-        options.filter(has_text=option_text).last.click(force=True, timeout=10000)
+        option = options.filter(has_text=option_text).last
     else:
-        options.first.click(force=True, timeout=10000)
+        option = options.first
+
+    option.click(force=True, timeout=10000)
 
     time.sleep(0.5)
     print(f"已选择：{label_text} -> {option_text or '第一个'}")
 
 
-def fill_input_by_label(page, label_text, value):
-    form_item = get_visible_form_item_by_label(page, label_text)
-    form_item.scroll_into_view_if_needed(timeout=8000)
-
-    input_box = form_item.locator("input:not([disabled])").first
-    input_box.fill(str(value), timeout=10000)
-
-    time.sleep(0.3)
-    print(f"已填写：{label_text} -> {value}")
-
-
-def fill_contact_time(page):
-    now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    page.evaluate(
-        """
-        (value) => {
-            const picker = document.querySelector('#contactTime')
-            if (!picker) return
-
-            const input = picker.querySelector('input')
-            if (!input) return
-
-            input.removeAttribute('disabled')
-            input.value = value
-
-            input.dispatchEvent(new Event('input', { bubbles: true }))
-            input.dispatchEvent(new Event('change', { bubbles: true }))
-            input.dispatchEvent(new Event('blur', { bubbles: true }))
-        }
-        """,
-        now_text,
-    )
-
-    time.sleep(0.5)
-    print("已填写联络时间：", now_text)
-
-
-def wait_call_record_form_ready(page):
-    page.wait_for_selector("#riskType", timeout=30000)
-    page.wait_for_selector("#contactResult", timeout=30000)
-    page.wait_for_selector("#collectType", timeout=30000)
-    page.wait_for_selector("#touch", timeout=30000)
-
-    time.sleep(1)
-    print("催记录入表单已就绪")
-
-
-def fill_collection_form(page, phone):
+def fill_collection_form(page):
     wait_call_record_form_ready(page)
 
     try:
-        select_ant_option_by_label(page, "催收形式", "外呼")
+        select_ant_option_by_label(page, "风险分类", "失联")
     except Exception as e:
-        print("催收形式选择失败，继续：", e)
-
-    phone_value = clean_phone(phone)
-
-    if phone_value:
-        try:
-            fill_input_by_label(page, "电话", phone_value)
-        except Exception as e:
-            print("电话填写失败，继续：", e)
-
-    select_ant_option_by_label(page, "风险分类", "失联")
+        print("风险分类选择失败：", e)
 
     try:
-        select_ant_option_by_label(page, "是否触达", "未触达")
+        select_ant_option_by_label(page, "联络结果")
     except Exception as e:
-        print("是否触达选择失败，继续：", e)
+        print("联络结果选择失败：", e)
 
-    try:
-        fill_contact_time(page)
-    except Exception as e:
-        print("联络时间填写失败，继续：", e)
-
-    select_ant_option_by_label(page, "联络结果")
+    print("催记录入填写完成")
 
 
 def submit_form(page):
-    record = page.locator(".record").last
+    record = page.locator(".add-collection-record").last
     submit_btn = record.locator("button.ant-btn-primary:has-text('提 交')").last
 
     submit_btn.scroll_into_view_if_needed(timeout=8000)
@@ -501,7 +430,7 @@ def process_case(page, task):
 
     hang_up(page)
 
-    fill_collection_form(page, phone)
+    fill_collection_form(page)
 
     submit_form(page)
 
