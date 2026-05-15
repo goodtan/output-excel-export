@@ -94,22 +94,54 @@ def ensure_page(playwright, page):
 
 
 def click_workbench_tab(page):
-    tabs = page.locator(".ant-tabs-tab")
-    count = tabs.count()
-    print(f"检测到 {count} 个 tab")
+    print("开始切换到电催工作台...")
 
-    for i in range(count):
-        tab = tabs.nth(i)
-        text = tab.inner_text(timeout=3000).strip()
-        print(f"TAB[{i}] => {text}")
+    page.evaluate(
+        """
+        () => {
+            const tabs = Array.from(document.querySelectorAll('.ant-tabs-tab'))
 
-        if text.startswith("电催工作台") and "详情" not in text:
-            tab.click(force=True, timeout=10000)
-            time.sleep(2)
-            print("已切换到电催工作台")
-            return
+            const target = tabs.find(tab => {
+                const text = (tab.innerText || '').trim()
+                return text === '电催工作台'
+            })
 
-    raise Exception("没有找到电催工作台 TAB")
+            if (!target) {
+                throw new Error('没有找到电催工作台 TAB')
+            }
+
+            target.click()
+        }
+        """
+    )
+
+    time.sleep(2)
+    print("已切换到电催工作台")
+
+
+def close_detail_tab(page):
+    try:
+        page.evaluate(
+            """
+            () => {
+                const tabs = Array.from(document.querySelectorAll('.ant-tabs-tab'))
+                const detailTabs = tabs.filter(tab => {
+                    const text = (tab.innerText || '').trim()
+                    return text.includes('电催工作台详情')
+                })
+
+                if (!detailTabs.length) return
+
+                const detailTab = detailTabs[detailTabs.length - 1]
+                const closeBtn = detailTab.querySelector('.ant-tabs-close-x')
+                if (closeBtn) closeBtn.click()
+            }
+            """
+        )
+        time.sleep(1)
+        print("已关闭详情 tab")
+    except Exception as e:
+        print("关闭详情 tab 失败，继续：", e)
 
 
 def search_contract(page, contract_no):
@@ -158,8 +190,20 @@ def search_contract(page, contract_no):
         contract_link.click(force=True, timeout=8000)
         print("已点击合同编号")
     except Exception as e:
-        print("点击合同编号失败，改为双击行：", e)
-        row.dblclick(force=True, timeout=8000)
+        print("点击合同编号失败，改为 JS 点击：", e)
+        page.evaluate(
+            """
+            (contractNo) => {
+                const row = document.querySelector(`tr[data-row-key="${contractNo}"]`)
+                if (!row) throw new Error('没找到合同所在行')
+                const links = Array.from(row.querySelectorAll('a'))
+                const link = links.find(a => (a.innerText || '').trim() === contractNo)
+                if (!link) throw new Error('没找到合同链接')
+                link.click()
+            }
+            """,
+            contract_no,
+        )
 
     time.sleep(5)
     print("已尝试进入详情")
@@ -395,7 +439,7 @@ def select_ant_option_by_label(page, label_text, option_text=None):
         print(f"已选择：{label_text} -> 第一个")
         return
 
-    for _ in range(30):
+    for _ in range(35):
         option = dropdown.locator(
             f'.ant-select-item-option[title="{option_text}"], '
             f'.ant-select-item-option[label="{option_text}"]'
@@ -477,6 +521,7 @@ def process_case(page, task):
 
     fill_collection_form(page)
     submit_form(page)
+    close_detail_tab(page)
 
     print(f"完成：{contract_no}")
 
