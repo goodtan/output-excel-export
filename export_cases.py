@@ -122,7 +122,10 @@ def click_workbench_tab(page):
     page.evaluate(
         """
         () => {
-            const tabs = Array.from(document.querySelectorAll('.ant-tabs-tab'))
+
+            const tabs = Array.from(
+                document.querySelectorAll('.ant-tabs-tab')
+            )
 
             const target = tabs.find(tab => {
                 const text = (tab.innerText || '').trim()
@@ -138,7 +141,13 @@ def click_workbench_tab(page):
         """
     )
 
-    time.sleep(2)
+    # 等待工作台搜索框真正出现
+    page.wait_for_selector(
+        'input.ant-input[placeholder*="批量搜索"]',
+        timeout=30000,
+    )
+
+    time.sleep(1)
 
     print("已切换到电催工作台")
 
