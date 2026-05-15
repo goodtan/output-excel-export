@@ -364,7 +364,7 @@ def get_form_item_by_label(page, label_text):
     return items.last
 
 
-def select_ant_option_by_label(page, label_text, option_text=None):
+def select_ant_option_by_label(page, label_text, option_text=None, exact=False):
     item = get_form_item_by_label(page, label_text)
     item.scroll_into_view_if_needed(timeout=8000)
 
@@ -379,7 +379,12 @@ def select_ant_option_by_label(page, label_text, option_text=None):
     options = dropdown.locator(".ant-select-item-option").filter(has_not_text="无数据")
 
     if option_text:
-        option = options.filter(has_text=option_text).last
+        if exact:
+            option = options.locator(
+                f'.ant-select-item-option-content:text-is("{option_text}")'
+            ).last
+        else:
+            option = options.filter(has_text=option_text).last
     else:
         option = options.first
 
@@ -393,12 +398,14 @@ def fill_collection_form(page):
     wait_call_record_form_ready(page)
 
     try:
-        select_ant_option_by_label(page, "风险分类", "失联")
+        # 精确匹配，只能选“失联”，不会误选“三方与客户失联”
+        select_ant_option_by_label(page, "风险分类", "失联", exact=True)
     except Exception as e:
         print("风险分类选择失败：", e)
 
     try:
-        select_ant_option_by_label(page, "联络结果")
+        # 五选一：占线 / 电话拒接 / 无法接通 / 空停 / 关机
+        select_ant_option_by_label(page, "联络结果", "无法接通", exact=True)
     except Exception as e:
         print("联络结果选择失败：", e)
 
