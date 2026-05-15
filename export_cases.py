@@ -413,28 +413,23 @@ def switch_status_to_idle(page):
 
 def ensure_idle_status(page):
     for i in range(3):
+        current = get_current_status(page)
+
+        if "空闲" in current:
+            print("状态正常：空闲")
+            return
 
         try:
-            current = get_current_status(page)
-
-            if "空闲" in current:
-                print("状态正常：空闲")
-                return
-
             switch_status_to_idle(page)
-
-            current = get_current_status(page)
-
-            if "空闲" in current:
-                print("切换成功")
-                return
-
         except Exception as e:
             print(f"第 {i + 1} 次切换失败：", e)
 
         time.sleep(2)
 
-    raise Exception("无法切换为空闲状态")
+    current = get_current_status(page)
+
+    if "空闲" not in current:
+        raise Exception(f"无法切换为空闲状态，当前状态：{current}")
 
 
 def select_outbound_number(page):
