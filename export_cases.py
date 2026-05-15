@@ -9,6 +9,7 @@ from openpyxl import load_workbook, Workbook
 from playwright.sync_api import sync_playwright
 
 
+
 INPUT_EXCEL_NAME = "input.xlsx"
 OUTPUT_EXCEL_NAME = f"output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
 CDP_URL = "http://127.0.0.1:9222"
