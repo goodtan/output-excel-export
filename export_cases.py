@@ -9,7 +9,7 @@ from playwright.sync_api import sync_playwright
 
 
 INPUT_EXCEL_NAME = "input.xlsx"
-OUTPUT_EXCEL_NAME = "output.xlsx"
+OUTPUT_EXCEL_NAME = f"output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
 CDP_URL = "http://127.0.0.1:9222"
 
 
@@ -71,13 +71,8 @@ def save_results(results):
             item.get("error", ""),
         ])
 
-    try:
-        wb.save(OUTPUT_EXCEL)
-        print(f"结果已保存：{OUTPUT_EXCEL}")
-    except PermissionError:
-        alt_path = OUTPUT_EXCEL.replace(".xlsx", f"_{int(time.time())}.xlsx")
-        wb.save(alt_path)
-        print(f"output.xlsx 正在被打开，已另存为：{alt_path}")
+    wb.save(OUTPUT_EXCEL)
+    print(f"结果已保存：{OUTPUT_EXCEL}")
 
 
 def get_page(playwright):
@@ -283,15 +278,30 @@ def get_name_from_page(page):
 
 def get_real_phone(page):
     try:
-        page.locator("span.show.toggle-des").first.click(timeout=5000)
-        time.sleep(1)
-    except Exception:
-        pass
+        call_out = page.locator(".call-out").first
+        call_out.wait_for(timeout=10000)
 
-    try:
-        text = page.locator(".call-out").first.inner_text(timeout=5000)
-        return text.replace("\n", " ").strip()
-    except Exception:
+        try:
+            call_out.locator(".toggle-des").first.click(force=True, timeout=5000)
+            time.sleep(1)
+        except Exception as e:
+            print("点击手机号展示按钮失败，继续尝试读取：", e)
+
+        spans = call_out.locator("span[title]")
+        count = spans.count()
+
+        for i in range(count):
+            text = spans.nth(i).inner_text(timeout=3000).strip()
+            if text.isdigit() and len(text) == 11:
+                print("获取到手机号：", text)
+                return text
+
+        text = call_out.inner_text(timeout=5000).replace("\n", " ").strip()
+        print("兜底手机号文本：", text)
+        return text
+
+    except Exception as e:
+        print("获取手机号失败：", e)
         return ""
 
 
@@ -412,26 +422,20 @@ def process_case(page, task):
     print(f"开始处理：{contract_no}")
 
     click_workbench_tab(page)
-
     search_contract(page, contract_no)
-
     wait_detail_ready(page)
 
     ensure_idle_status(page)
-
     select_outbound_number(page)
-
     ensure_idle_status(page)
 
     name = get_name_from_page(page)
     phone = get_real_phone(page)
 
     click_call_btn(page)
-
     hang_up(page)
 
     fill_collection_form(page)
-
     submit_form(page)
 
     print(f"完成：{contract_no}")
