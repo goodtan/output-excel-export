@@ -117,40 +117,49 @@ def click_workbench_tab(page):
 
 
 def search_contract(page, contract_no):
-    page.wait_for_selector("input.ant-input", timeout=30000)
+    print(f"开始搜索合同：{contract_no}")
 
-    inputs = page.locator("input.ant-input")
-    count = inputs.count()
+    page.bring_to_front()
+    time.sleep(1)
 
-    target = None
+    # 只找当前激活 tab 面板里的合同编号输入框，避开顶部电话栏 disabled input
+    active_pane = page.locator(".ant-tabs-tabpane-active").first
+    active_pane.wait_for(state="visible", timeout=30000)
 
-    for i in range(count):
-        inp = inputs.nth(i)
-        try:
-            placeholder = inp.get_attribute("placeholder") or ""
-            if "批量搜索" in placeholder:
-                target = inp
-                break
-        except Exception:
-            pass
+    form_item = active_pane.locator(
+        '.ant-form-item:has(label[title="合同编号"])'
+    ).first
 
-    if target is None:
-        raise Exception("没找到合同编号输入框")
+    contract_input = form_item.locator(
+        'input.ant-input[placeholder*="批量搜索"]:not([disabled])'
+    ).first
 
-    target.fill("", timeout=10000)
-    target.fill(contract_no, timeout=10000)
+    contract_input.wait_for(state="visible", timeout=30000)
+
+    contract_input.click(force=True, timeout=10000)
+    contract_input.press("Control+A")
+    contract_input.press("Backspace")
+    contract_input.fill(contract_no, timeout=10000)
 
     print(f"已输入合同编号：{contract_no}")
 
-    query_btn = page.locator("button.ant-btn-primary").filter(has_text="查 询").first
-    query_btn.click(force=True, timeout=10000)
+    query_btn = active_pane.locator(
+        "button.ant-btn-primary"
+    ).filter(has_text="查 询").first
 
+    query_btn.click(force=True, timeout=10000)
     print("已点击查询")
 
-    page.wait_for_selector(f"tr[data-row-key='{contract_no}']", timeout=30000)
+    # 等查询结果出现
+    row_selector = f'tr[data-row-key="{contract_no}"]'
+    page.wait_for_selector(row_selector, timeout=30000)
 
-    row = page.locator(f"tr[data-row-key='{contract_no}']").first
-    row.locator("a", has_text=contract_no).first.click(force=True, timeout=10000)
+    row = page.locator(row_selector).first
+
+    # 点固定左侧表格里的合同编号
+    contract_link = row.locator("a", has_text=contract_no).first
+    contract_link.scroll_into_view_if_needed(timeout=5000)
+    contract_link.click(force=True, timeout=10000)
 
     print("已点击合同编号进入详情")
     time.sleep(3)
