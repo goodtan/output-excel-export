@@ -119,37 +119,57 @@ def ensure_page(playwright, page):
 def click_workbench_tab(page):
     print("开始切换到电催工作台...")
 
-    page.evaluate(
-        """
-        () => {
+    for attempt in range(3):
+        try:
+            page.evaluate(
+                """
+                () => {
+                    const tabs = Array.from(document.querySelectorAll('.ant-tabs-tab'))
 
-            const tabs = Array.from(
-                document.querySelectorAll('.ant-tabs-tab')
+                    const target = tabs.find(tab => {
+                        const text = (tab.innerText || '').trim()
+                        return text === '电催工作台'
+                    })
+
+                    if (!target) {
+                        throw new Error('没有找到电催工作台 TAB')
+                    }
+
+                    target.scrollIntoView({ block: 'center', inline: 'center' })
+                    target.click()
+                }
+                """
             )
 
-            const target = tabs.find(tab => {
-                const text = (tab.innerText || '').trim()
-                return text === '电催工作台'
-            })
+            time.sleep(2)
 
-            if (!target) {
-                throw new Error('没有找到电催工作台 TAB')
-            }
+            # 不要求 visible，因为有时候被外层遮挡但可以 fill
+            input_locator = page.locator(
+                'input.ant-input[placeholder*="批量搜索"]:not([disabled])'
+            ).first
 
-            target.click()
-        }
-        """
-    )
+            input_locator.wait_for(state="attached", timeout=15000)
 
-    # 等待工作台搜索框真正出现
-    page.wait_for_selector(
-        'input.ant-input[placeholder*="批量搜索"]',
-        timeout=30000,
-    )
+            print("已切换到电催工作台")
+            return
 
-    time.sleep(1)
+        except Exception as e:
+            print(f"第 {attempt + 1} 次切换工作台失败：{e}")
 
-    print("已切换到电催工作台")
+            # 兜底：点左侧菜单里的电催工作台
+            try:
+                page.locator("text=电催工作台").first.click(force=True, timeout=5000)
+                time.sleep(3)
+            except Exception:
+                pass
+
+            # 最后一轮前刷新一下，防止 tab 内容区挂死
+            if attempt == 1:
+                print("工作台内容区没出来，刷新页面重试...")
+                page.reload(wait_until="domcontentloaded", timeout=30000)
+                time.sleep(5)
+
+    raise Exception("切换到电催工作台失败：找不到合同编号搜索框")
 
 
 def close_detail_tab(page):
@@ -196,7 +216,7 @@ def search_contract(page, contract_no):
         'input.ant-input[placeholder*="批量搜索"]:not([disabled])'
     ).first
 
-    contract_input.wait_for(timeout=30000)
+    contract_input.wait_for(state="attached", timeout=30000)
 
     contract_input.scroll_into_view_if_needed(timeout=5000)
 
