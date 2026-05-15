@@ -356,47 +356,60 @@ def switch_status_to_idle(page):
 
     print("当前不是空闲，开始切换为空闲...")
 
-    status_select = page.locator(
-        "div.ant-select.current-status-value"
-    ).first
-
+    status_select = page.locator("div.ant-select.current-status-value").first
+    status_select.scroll_into_view_if_needed(timeout=5000)
     status_select.click(force=True, timeout=10000)
 
-    time.sleep(1)
+    time.sleep(0.5)
 
-    dropdown = page.locator(
-        ".ant-select-dropdown:not(.ant-select-dropdown-hidden)"
-    ).last
+    # 用键盘兜底选择，避免 dropdown hidden 导致点不到
+    page.keyboard.press("ArrowUp")
+    time.sleep(0.2)
+    page.keyboard.press("ArrowUp")
+    time.sleep(0.2)
+    page.keyboard.press("Enter")
 
-    dropdown.wait_for(state="visible", timeout=10000)
+    time.sleep(2)
 
-    idle_option = dropdown.locator(
-        ".ant-select-item-option"
-    ).filter(
-        has_text="空闲"
-    ).last
+    current_text = get_current_status(page)
 
-    idle_option.scroll_into_view_if_needed(timeout=5000)
+    if "空闲" in current_text:
+        print("状态已切换为空闲")
+        return
 
-    idle_option.click(force=True, timeout=10000)
+    # 如果键盘没成功，再用 JS 点击真实 option
+    print("键盘切换失败，尝试 JS 点击空闲选项...")
 
-    page.wait_for_function(
+    status_select.click(force=True, timeout=10000)
+    time.sleep(0.5)
+
+    page.evaluate(
         """
         () => {
-            const el = document.querySelector(
-                'div.ant-select.current-status-value'
-            )
+            const options = Array.from(document.querySelectorAll('.ant-select-item-option'))
 
-            return el && el.innerText.includes('空闲')
+            const idle = options.find(item => {
+                const text = (item.innerText || item.getAttribute('title') || '').trim()
+                return text.includes('空闲')
+            })
+
+            if (!idle) {
+                throw new Error('没有找到空闲选项')
+            }
+
+            idle.click()
         }
-        """,
-        timeout=15000,
+        """
     )
 
     time.sleep(2)
 
-    print("状态已切换为空闲")
+    current_text = get_current_status(page)
 
+    if "空闲" not in current_text:
+        raise Exception(f"切换为空闲失败，当前状态仍然是：{current_text}")
+
+    print("状态已切换为空闲")
 
 def ensure_idle_status(page):
     for i in range(3):
