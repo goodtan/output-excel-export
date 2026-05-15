@@ -434,37 +434,34 @@ def select_outbound_number(page):
 
 def get_name_from_page(page):
     try:
-        call_out = page.locator(".call-out").first
+        row = page.locator("tr:has(.call-out)").first
+        row.wait_for(timeout=10000)
 
-        call_out.wait_for(timeout=10000)
+        name_cell = row.locator("td").first
 
-        spans = call_out.locator("span[title]")
+        try:
+            name_cell.locator(".show.toggle-des, .toggle-des").first.click(
+                force=True,
+                timeout=5000,
+            )
+            time.sleep(1)
+        except Exception as e:
+            print("点击姓名展示按钮失败，继续读取：", e)
 
+        spans = name_cell.locator("span[title]")
         count = spans.count()
 
         for i in range(count):
-
             text = spans.nth(i).inner_text(timeout=1000).strip()
 
             if text and not text.isdigit() and 1 <= len(text) <= 20:
                 print("获取到姓名：", text)
                 return text
 
-        body = page.locator("body").inner_text(timeout=5000)
-
-        for line in body.splitlines():
-
-            line = line.strip()
-
-            if "承租人" in line:
-                print("兜底姓名：", line)
-                return line
-
     except Exception as e:
         print("获取姓名失败：", e)
 
     return ""
-
 
 def get_real_phone(page):
     try:
