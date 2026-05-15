@@ -122,46 +122,51 @@ def search_contract(page, contract_no):
     page.bring_to_front()
     time.sleep(1)
 
-    # 只找当前激活 tab 面板里的合同编号输入框，避开顶部电话栏 disabled input
-    active_pane = page.locator(".ant-tabs-tabpane-active").first
-    active_pane.wait_for(state="visible", timeout=30000)
-
-    form_item = active_pane.locator(
-        '.ant-form-item:has(label[title="合同编号"])'
-    ).first
-
-    contract_input = form_item.locator(
+    # 直接找 placeholder
+    contract_input = page.locator(
         'input.ant-input[placeholder*="批量搜索"]:not([disabled])'
     ).first
 
-    contract_input.wait_for(state="visible", timeout=30000)
+    contract_input.wait_for(timeout=30000)
+
+    contract_input.scroll_into_view_if_needed(timeout=5000)
 
     contract_input.click(force=True, timeout=10000)
+
+    # 清空
     contract_input.press("Control+A")
     contract_input.press("Backspace")
+
+    # 输入
     contract_input.fill(contract_no, timeout=10000)
 
     print(f"已输入合同编号：{contract_no}")
 
-    query_btn = active_pane.locator(
-        "button.ant-btn-primary"
-    ).filter(has_text="查 询").first
+    # 查询按钮
+    query_btn = page.locator(
+        'button.ant-btn-primary:has-text("查 询")'
+    ).first
 
     query_btn.click(force=True, timeout=10000)
+
     print("已点击查询")
 
-    # 等查询结果出现
+    # 等待表格出现
     row_selector = f'tr[data-row-key="{contract_no}"]'
+
     page.wait_for_selector(row_selector, timeout=30000)
 
     row = page.locator(row_selector).first
 
-    # 点固定左侧表格里的合同编号
+    # 点击合同编号
     contract_link = row.locator("a", has_text=contract_no).first
+
     contract_link.scroll_into_view_if_needed(timeout=5000)
+
     contract_link.click(force=True, timeout=10000)
 
     print("已点击合同编号进入详情")
+
     time.sleep(3)
 
 
