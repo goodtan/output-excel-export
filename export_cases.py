@@ -364,48 +364,53 @@ def get_form_item_by_label(page, label_text):
     return items.last
 
 
-def select_ant_option_by_label(page, label_text, option_text=None, exact=False):
+def select_ant_option_by_label(page, label_text, option_text=None):
     item = get_form_item_by_label(page, label_text)
     item.scroll_into_view_if_needed(timeout=8000)
 
     select_root = item.locator(".ant-select:not(.ant-select-disabled)").last
     select_root.click(force=True, timeout=10000)
-
     time.sleep(1)
 
     dropdown = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").last
     dropdown.wait_for(timeout=10000)
 
-    options = dropdown.locator(".ant-select-item-option").filter(has_not_text="无数据")
+    if not option_text:
+        option = dropdown.locator(".ant-select-item-option").filter(has_not_text="无数据").first
+        option.click(force=True, timeout=10000)
+        print(f"已选择：{label_text} -> 第一个")
+        return
 
-    if option_text:
-        if exact:
-            option = options.locator(
-                f'.ant-select-item-option-content:text-is("{option_text}")'
-            ).last
-        else:
-            option = options.filter(has_text=option_text).last
-    else:
-        option = options.first
+    for _ in range(30):
+        option = dropdown.locator(
+            f'.ant-select-item-option[title="{option_text}"], '
+            f'.ant-select-item-option[label="{option_text}"]'
+        ).last
 
-    option.click(force=True, timeout=10000)
+        if option.count() > 0:
+            option.scroll_into_view_if_needed(timeout=3000)
+            option.click(force=True, timeout=10000)
+            time.sleep(0.5)
+            print(f"已选择：{label_text} -> {option_text}")
+            return
 
-    time.sleep(0.5)
-    print(f"已选择：{label_text} -> {option_text or '第一个'}")
+        holder = dropdown.locator(".rc-virtual-list-holder").first
+        holder.evaluate("(el) => { el.scrollTop = el.scrollTop + 220 }")
+        time.sleep(0.25)
+
+    raise Exception(f"未找到选项：{label_text} -> {option_text}")
 
 
 def fill_collection_form(page):
     wait_call_record_form_ready(page)
 
     try:
-        # 精确匹配，只能选“失联”，不会误选“三方与客户失联”
-        select_ant_option_by_label(page, "风险分类", "失联", exact=True)
+        select_ant_option_by_label(page, "风险分类", "失联")
     except Exception as e:
         print("风险分类选择失败：", e)
 
     try:
-        # 五选一：占线 / 电话拒接 / 无法接通 / 空停 / 关机
-        select_ant_option_by_label(page, "联络结果", "无法接通", exact=True)
+        select_ant_option_by_label(page, "联络结果", "无法接通")
     except Exception as e:
         print("联络结果选择失败：", e)
 
