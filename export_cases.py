@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import random
 import traceback
 from datetime import datetime
 
@@ -11,6 +12,8 @@ from playwright.sync_api import sync_playwright
 INPUT_EXCEL_NAME = "input.xlsx"
 OUTPUT_EXCEL_NAME = f"output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
 CDP_URL = "http://127.0.0.1:9222"
+
+CONTACT_RESULTS = ["占线", "电话拒接", "无法接通", "空停", "关机"]
 
 
 def app_dir():
@@ -130,26 +133,37 @@ def search_contract(page, contract_no):
 
     query_btn = page.locator('button.ant-btn-primary:has-text("查 询")').first
     query_btn.click(force=True, timeout=10000)
+
     print("已点击查询")
 
     row_selector = f'tr[data-row-key="{contract_no}"]'
-    page.wait_for_selector(row_selector, timeout=30000)
-
-    row = page.locator(row_selector).first
-    row.scroll_into_view_if_needed(timeout=5000)
-    time.sleep(1)
-
-    contract_link = row.locator("a", has_text=contract_no).first
 
     try:
+        page.wait_for_selector(row_selector, timeout=10000)
+    except Exception:
+        print(f"未查询到合同：{contract_no}")
+        return False
+
+    row = page.locator(row_selector).first
+
+    try:
+        row.scroll_into_view_if_needed(timeout=5000)
+    except Exception:
+        pass
+
+    time.sleep(1)
+
+    try:
+        contract_link = row.locator("a", has_text=contract_no).first
         contract_link.click(force=True, timeout=8000)
         print("已点击合同编号")
     except Exception as e:
-        print("点击 a 标签失败，改为双击整行：", e)
+        print("点击合同编号失败，改为双击行：", e)
         row.dblclick(force=True, timeout=8000)
 
     time.sleep(5)
     print("已尝试进入详情")
+    return True
 
 
 def wait_detail_ready(page):
@@ -409,8 +423,11 @@ def fill_collection_form(page):
     except Exception as e:
         print("风险分类选择失败：", e)
 
+    selected_result = random.choice(CONTACT_RESULTS)
+
     try:
-        select_ant_option_by_label(page, "联络结果", "无法接通")
+        select_ant_option_by_label(page, "联络结果", selected_result)
+        print(f"联络结果已选择：{selected_result}")
     except Exception as e:
         print("联络结果选择失败：", e)
 
@@ -434,7 +451,18 @@ def process_case(page, task):
     print(f"开始处理：{contract_no}")
 
     click_workbench_tab(page)
-    search_contract(page, contract_no)
+
+    found = search_contract(page, contract_no)
+
+    if not found:
+        return {
+            "contract_no": contract_no,
+            "name": "",
+            "phone": "",
+            "status": "未找到合同",
+            "error": "",
+        }
+
     wait_detail_ready(page)
 
     ensure_idle_status(page)
