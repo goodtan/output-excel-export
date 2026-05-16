@@ -537,36 +537,50 @@ def get_visible_form_item(page, label_text):
 
 def select_dropdown_value(page, label_text, target_text):
     item = get_visible_form_item(page, label_text)
-    item.scroll_into_view_if_needed()
+    item.scroll_into_view_if_needed(timeout=8000)
 
     select_root = item.locator(".ant-select:not(.ant-select-disabled)").last
     select_root.evaluate("(el) => el.click()")
 
     time.sleep(1)
 
-    page.evaluate(
-        """
-        (targetText) => {
-            const options = Array.from(document.querySelectorAll('.ant-select-item-option'))
+    dropdown = page.locator(
+        ".ant-select-dropdown:not(.ant-select-dropdown-hidden)"
+    ).last
 
-            const exact = options.find(item => {
-                const text = (item.innerText || item.getAttribute('title') || '').trim()
-                return text === targetText
-            })
+    dropdown.wait_for(state="attached", timeout=10000)
 
-            if (exact) {
-                exact.click()
+    for i in range(30):
+        try:
+            option = dropdown.locator(
+                f'.ant-select-item-option[title="{target_text}"]'
+            ).last
+
+            if option.count() > 0:
+                option.evaluate("(el) => el.click()")
+                time.sleep(1)
+                print(f"已选择：{label_text} -> {target_text}")
                 return
-            }
 
-            throw new Error('没找到选项：' + targetText)
-        }
-        """,
-        target_text,
-    )
+            option2 = dropdown.locator(
+                ".ant-select-item-option"
+            ).filter(has_text=target_text).last
 
-    time.sleep(1)
-    print(f"已选择：{label_text} -> {target_text}")
+            if option2.count() > 0:
+                option2.evaluate("(el) => el.click()")
+                time.sleep(1)
+                print(f"已选择：{label_text} -> {target_text}")
+                return
+
+            holder = dropdown.locator(".rc-virtual-list-holder").first
+            holder.evaluate("(el) => { el.scrollTop = el.scrollTop + 180 }")
+
+        except Exception:
+            pass
+
+        time.sleep(0.3)
+
+    raise Exception(f"{label_text} 没找到选项：{target_text}")
 
 
 def fill_collection_form(page):
