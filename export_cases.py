@@ -32,7 +32,6 @@ CONTACT_RESULTS = [
 def app_dir():
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
-
     return os.path.dirname(os.path.abspath(__file__))
 
 
@@ -50,61 +49,36 @@ def read_excel():
     ws = wb.active
 
     headers = {}
-
     for idx, cell in enumerate(ws[1]):
         if cell.value:
             headers[str(cell.value).strip()] = idx
 
     print("当前识别到的表头：", list(headers.keys()))
 
-    contract_keys = [
-        "合同编号",
-        "合同号",
-        "contractNo",
-        "单号",
-    ]
-
-    contract_index = next(
-        (headers[k] for k in contract_keys if k in headers),
-        None,
-    )
+    contract_keys = ["合同编号", "合同号", "contractNo", "单号"]
+    contract_index = next((headers[k] for k in contract_keys if k in headers), None)
 
     if contract_index is None:
         raise Exception("Excel 缺少合同编号列")
 
     tasks = []
-
     for row in ws.iter_rows(min_row=2):
-
         contract_no = row[contract_index].value
-
         if contract_no:
-            tasks.append({
-                "contract_no": str(contract_no).strip()
-            })
+            tasks.append({"contract_no": str(contract_no).strip()})
 
     print(f"读取到 {len(tasks)} 条数据")
-
     return tasks
 
 
 def save_results(results):
-
     wb = Workbook()
     ws = wb.active
-
     ws.title = "结果"
 
-    ws.append([
-        "合同编号",
-        "姓名",
-        "电话号码",
-        "状态",
-        "错误信息",
-    ])
+    ws.append(["合同编号", "姓名", "电话号码", "状态", "错误信息"])
 
     for item in results:
-
         ws.append([
             item.get("contract_no", ""),
             item.get("name", ""),
@@ -114,108 +88,82 @@ def save_results(results):
         ])
 
     try:
-
         wb.save(OUTPUT_EXCEL)
-
         print(f"结果已保存：{OUTPUT_EXCEL}")
-
     except PermissionError:
-
         alt_path = OUTPUT_EXCEL.replace(
             ".xlsx",
             f"_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
         )
-
         wb.save(alt_path)
-
         print(f"output.xlsx 正在被打开，已另存为：{alt_path}")
 
 
 def get_page(playwright):
-
     browser = playwright.chromium.connect_over_cdp(CDP_URL)
-
     context = browser.contexts[0]
+    pages = [p for p in context.pages if not p.is_closed()]
 
-    pages = [
-        p for p in context.pages
-        if not p.is_closed()
-    ]
+    target_page = None
+    for p in pages:
+        try:
+            url = p.url or ""
+            title = p.title() or ""
+            if "pingan.com.cn" in url or "fls-aflm-af" in url or "电催工作台" in title:
+                target_page = p
+                break
+        except Exception:
+            pass
 
-    page = pages[0] if pages else context.new_page()
+    if target_page is None:
+        target_page = pages[0] if pages else context.new_page()
 
-    return browser, context, page
+    target_page.bring_to_front()
+    return browser, context, target_page
 
 
 def ensure_page(playwright, page):
-
     if page is None or page.is_closed():
-
         print("页面已关闭，重新连接 Chrome...")
-
         _, _, page = get_page(playwright)
-
     return page
 
 
 def click_workbench_tab(page):
-
     print("开始切换到电催工作台...")
 
     for attempt in range(3):
-
         try:
-
             success = page.evaluate(
                 """
                 () => {
-
-                    const tabs = Array.from(
-                        document.querySelectorAll('.ant-tabs-tab')
-                    )
+                    const tabs = Array.from(document.querySelectorAll('.ant-tabs-tab'))
 
                     const target = tabs.find(tab => {
-
-                        const text = (
-                            tab.innerText || ''
-                        ).trim()
-
+                        const text = (tab.innerText || '').trim()
                         return text === '电催工作台'
                     })
 
-                    if (!target) {
-                        return false
-                    }
+                    if (!target) return false
 
-                    target.scrollIntoView({
-                        block: 'center',
-                        inline: 'center'
-                    })
-
+                    target.scrollIntoView({ block: 'center', inline: 'center' })
                     target.click()
-
                     return true
                 }
                 """
             )
 
             if success:
-
                 print("已点击电催工作台 TAB")
-
                 time.sleep(5)
 
                 try:
-
                     page.wait_for_selector(
                         'input.ant-input[placeholder*="批量搜索"]',
                         timeout=15000,
                     )
-
                     print("工作台恢复成功")
-
                     return
-
                 except Exception:
                     print("TAB切换后没恢复搜索框")
 
@@ -235,26 +183,16 @@ def click_workbench_tab(page):
             )
 
             print("已通过 URL 恢复工作台")
-
             return
 
         except Exception as e:
-
             print(f"第 {attempt + 1} 次切换工作台失败：{e}")
 
             if attempt == 1:
-
                 try:
-
                     print("刷新页面中...")
-
-                    page.reload(
-                        wait_until="domcontentloaded",
-                        timeout=60000,
-                    )
-
+                    page.reload(wait_until="domcontentloaded", timeout=60000)
                     time.sleep(8)
-
                 except Exception:
                     pass
 
@@ -264,7 +202,6 @@ def click_workbench_tab(page):
 
 
 def search_contract(page, contract_no):
-
     print(f"开始搜索合同：{contract_no}")
 
     page.wait_for_selector(
@@ -277,19 +214,13 @@ def search_contract(page, contract_no):
     ).first
 
     contract_input.click(force=True)
-
     contract_input.press("Control+A")
-
     contract_input.press("Backspace")
-
     contract_input.fill(contract_no)
 
     print(f"已输入合同编号：{contract_no}")
 
-    query_btn = page.locator(
-        'button.ant-btn-primary:has-text("查 询")'
-    ).first
-
+    query_btn = page.locator('button.ant-btn-primary:has-text("查 询")').first
     query_btn.click(force=True)
 
     print("已点击查询")
@@ -297,120 +228,99 @@ def search_contract(page, contract_no):
     row_selector = f'tr[data-row-key="{contract_no}"]'
 
     try:
-
-        page.wait_for_selector(
-            row_selector,
-            timeout=15000,
-        )
-
+        page.wait_for_selector(row_selector, timeout=15000)
     except Exception:
-
         print("未查询到合同，自动跳过")
-
         return False
 
     row = page.locator(row_selector).first
-
-    contract_link = row.locator(
-        "a",
-        has_text=contract_no,
-    ).first
+    contract_link = row.locator("a", has_text=contract_no).first
 
     contract_link.scroll_into_view_if_needed()
-
     contract_link.click(force=True)
 
     print("已点击合同编号进入详情")
-
     time.sleep(5)
 
     return True
 
 
 def wait_detail_ready(page):
-
-    page.wait_for_selector(
-        ".record",
-        timeout=30000,
-    )
-
-    page.wait_for_selector(
-        ".call-out",
-        timeout=30000,
-    )
+    page.wait_for_selector(".record", timeout=30000)
+    page.wait_for_selector(".call-out", timeout=30000)
 
     time.sleep(3)
-
     print("详情页数据已加载")
 
 
 def get_current_status(page):
-
     try:
-
-        text = page.locator(
-            "div.ant-select.current-status-value"
-        ).first.inner_text(timeout=5000)
-
+        text = page.locator("div.ant-select.current-status-value").first.inner_text(timeout=5000)
         text = text.strip()
-
         print("当前状态：", text)
-
         return text
-
     except Exception:
-
         return ""
 
 
 def switch_status_to_idle(page):
-
     current = get_current_status(page)
 
     if "空闲" in current:
-
         print("当前已经是空闲状态")
-
         return
 
     print("当前不是空闲，开始切换为空闲...")
 
-    status_select = page.locator(
-        "div.ant-select.current-status-value"
-    ).first
+    status_select = page.locator("div.ant-select.current-status-value").first
+    status_select.evaluate("(el) => el.click()")
 
-    status_select.click(force=True)
+    time.sleep(1)
 
-    time.sleep(2)
+    try:
+        page.keyboard.press("ArrowUp")
+        time.sleep(0.3)
+        page.keyboard.press("ArrowUp")
+        time.sleep(0.3)
+        page.keyboard.press("Enter")
+        time.sleep(2)
+    except Exception:
+        pass
 
-    dropdown = page.locator(
-        ".ant-select-dropdown:not(.ant-select-dropdown-hidden)"
-    ).last
+    current = get_current_status(page)
+    if "空闲" in current:
+        print("状态已切换为空闲")
+        return
 
-    dropdown.wait_for(
-        state="visible",
-        timeout=10000,
+    page.evaluate(
+        """
+        () => {
+            const options = Array.from(document.querySelectorAll('.ant-select-item-option'))
+            const target = options.find(item => {
+                const text = (item.innerText || item.getAttribute('title') || '').trim()
+                return text.includes('空闲')
+            })
+
+            if (!target) throw new Error('没有找到空闲选项')
+
+            target.click()
+        }
+        """
     )
 
-    option = dropdown.locator(
-        ".ant-select-item-option"
-    ).filter(
-        has_text="空闲"
-    ).last
-
-    option.click(force=True)
-
     time.sleep(3)
+
+    current = get_current_status(page)
+
+    if "空闲" not in current:
+        raise Exception(f"切换为空闲失败，当前状态：{current}")
 
     print("状态已切换为空闲")
 
 
 def ensure_idle_status(page):
-
     for i in range(3):
-
         try:
-
             current = get_current_status(page)
 
             if "空闲" in current:
@@ -424,7 +334,6 @@ def ensure_idle_status(page):
                 return
 
         except Exception as e:
-
             print(f"第 {i + 1} 次切换失败：{e}")
 
         time.sleep(2)
@@ -433,106 +342,100 @@ def ensure_idle_status(page):
 
 
 def select_outbound_number(page):
-
-    caller_select = page.locator(
-        "div.ant-select.dial-caller-select"
-    ).first
-
-    caller_select.wait_for(
-        state="visible",
-        timeout=20000,
-    )
+    caller_select = page.locator("div.ant-select.dial-caller-select").first
+    caller_select.wait_for(state="visible", timeout=20000)
 
     current_text = caller_select.inner_text().strip()
-
     print("当前外显号码：", current_text)
 
     if current_text and "请选择" not in current_text:
         return
 
-    caller_select.click(force=True)
+    caller_select.evaluate("(el) => el.click()")
 
     time.sleep(2)
 
-    dropdown = page.locator(
-        ".ant-select-dropdown:not(.ant-select-dropdown-hidden)"
-    ).last
+    page.evaluate(
+        """
+        () => {
+            const options = Array.from(document.querySelectorAll('.ant-select-item-option'))
 
-    option = dropdown.locator(
-        ".ant-select-item-option"
-    ).first
+            const target = options.find(item => {
+                const text = (item.innerText || '').trim()
+                return text && !text.includes('无数据')
+            })
 
-    option.click(force=True)
+            if (!target) throw new Error('没有号码选项')
+
+            target.click()
+        }
+        """
+    )
 
     time.sleep(2)
-
     print("已选择外显号码")
 
 
 def reveal_name_and_phone(page):
-
     try:
-
-        icons = page.locator(
-            "span.show.toggle-des"
-        )
-
+        icons = page.locator("span.show.toggle-des")
         count = icons.count()
 
         for i in range(count):
-
             try:
-
-                icons.nth(i).click(force=True)
-
+                icons.nth(i).evaluate("(el) => el.click()")
                 time.sleep(0.5)
-
             except Exception:
                 pass
+    except Exception:
+        pass
 
+    try:
+        icons = page.locator(".call-out .toggle-des")
+        count = icons.count()
+
+        for i in range(count):
+            try:
+                icons.nth(i).evaluate("(el) => el.click()")
+                time.sleep(0.5)
+            except Exception:
+                pass
     except Exception:
         pass
 
 
 def get_name_from_page(page):
-
     try:
-
         reveal_name_and_phone(page)
 
-        rows = page.locator(
-            "tr.ant-table-row"
-        )
-
+        rows = page.locator("tr.ant-table-row")
         count = rows.count()
 
         for i in range(count):
-
             row = rows.nth(i)
-
             text = row.inner_text()
 
             if "承租人" not in text:
                 continue
 
             spans = row.locator("span[title]")
-
             s_count = spans.count()
 
             for j in range(s_count):
+                value = spans.nth(j).get_attribute("title")
 
-                try:
+                if not value:
+                    continue
 
-                    value = spans.nth(j).get_attribute("title")
+                if re.fullmatch(r"[a-f0-9]{32}", value):
+                    continue
 
-                    if value and not re.fullmatch(r"[a-f0-9]{32}", value):
+                if re.fullmatch(r"\d{11}", value):
+                    continue
 
-                        if not re.search(r"\d", value):
-
-                            return value
-
-                except Exception:
-                    pass
+                if not re.search(r"\d", value):
+                    print("姓名：", value)
+                    return value
 
     except Exception:
         pass
@@ -541,42 +444,28 @@ def get_name_from_page(page):
 
 
 def get_real_phone(page):
-
     try:
-
         reveal_name_and_phone(page)
 
-        rows = page.locator(
-            "tr.ant-table-row"
-        )
-
+        rows = page.locator("tr.ant-table-row")
         count = rows.count()
 
         for i in range(count):
-
             row = rows.nth(i)
-
             text = row.inner_text()
 
             if "承租人" not in text:
                 continue
 
             spans = row.locator("span[title]")
-
             s_count = spans.count()
 
             for j in range(s_count):
+                value = spans.nth(j).get_attribute("title")
 
-                try:
-
-                    value = spans.nth(j).get_attribute("title")
-
-                    if value and re.fullmatch(r"\d{11}", value):
-
-                        return value
-
-                except Exception:
-                    pass
+                if value and re.fullmatch(r"\d{11}", value):
+                    print("手机号：", value)
+                    return value
 
     except Exception:
         pass
@@ -585,29 +474,18 @@ def get_real_phone(page):
 
 
 def click_call_btn(page):
-
-    btn = page.locator(
-        ".call-out img[src*='contractMakeCall']"
-    ).first
-
+    btn = page.locator(".call-out img[src*='contractMakeCall']").first
     btn.scroll_into_view_if_needed()
-
-    btn.click(force=True)
+    btn.evaluate("(el) => el.click()")
 
     time.sleep(2)
 
     try:
+        call_btn = page.locator("button.call-button").filter(has_text="呼叫").last
 
-        call_btn = page.locator(
-            "button.call-button:has-text('呼叫')"
-        ).first
-
-        if call_btn.is_visible(timeout=3000):
-
-            call_btn.click(force=True)
-
+        if call_btn.count() > 0:
+            call_btn.evaluate("(el) => el.click()")
             print("已点击顶部呼叫")
-
     except Exception:
         pass
 
@@ -615,33 +493,21 @@ def click_call_btn(page):
 
 
 def hang_up(page):
+    print("等待 5 秒后挂断...")
 
-    print("等待 3 秒后挂断...")
-
-    time.sleep(3)
+    time.sleep(5)
 
     for i in range(5):
-
         try:
+            btn = page.locator("button.call-button").filter(has_text="挂断").last
+            btn.wait_for(state="attached", timeout=5000)
+            btn.evaluate("(el) => el.click()")
 
-            btn = page.locator(
-                "button.call-button:has-text('挂断')"
-            ).first
-
-            if btn.is_visible(timeout=2000):
-
-                btn.scroll_into_view_if_needed()
-
-                btn.click(force=True)
-
-                print("已挂断")
-
-                time.sleep(2)
-
-                return
+            print("已挂断")
+            time.sleep(2)
+            return
 
         except Exception as e:
-
             print(f"挂断重试 {i + 1}：{e}")
 
         time.sleep(2)
@@ -649,169 +515,118 @@ def hang_up(page):
     raise Exception("挂断失败")
 
 
-def select_dropdown_value(page, label_text, target_text):
+def get_visible_form_item(page, label_text):
+    form = page.locator(".add-collection-record").last
+    items = form.locator(f".ant-form-item:has(label[title='{label_text}'])")
+    count = items.count()
 
-    form_item = page.locator(
-        f".ant-form-item:has(label[title='{label_text}'])"
-    ).last
-
-    form_item.scroll_into_view_if_needed()
-
-    select_root = form_item.locator(
-        ".ant-select:not(.ant-select-disabled)"
-    ).first
-
-    select_root.click(force=True)
-
-    time.sleep(1)
-
-    dropdown = page.locator(
-        ".ant-select-dropdown:not(.ant-select-dropdown-hidden)"
-    ).last
-
-    dropdown.wait_for(
-        state="visible",
-        timeout=10000,
-    )
-
-    options = dropdown.locator(
-        ".ant-select-item-option"
-    )
-
-    count = options.count()
-
-    found = False
-
-    for i in range(count):
-
-        option = options.nth(i)
+    for i in range(count - 1, -1, -1):
+        item = items.nth(i)
 
         try:
+            box = item.bounding_box()
 
-            text = option.inner_text().strip()
-
-            if text == target_text:
-
-                option.scroll_into_view_if_needed()
-
-                option.click(force=True)
-
-                found = True
-
-                break
+            if box and box["width"] > 0 and box["height"] > 0:
+                return item
 
         except Exception:
             pass
 
-    if not found:
-        raise Exception(f"{label_text} 没找到选项：{target_text}")
+    raise Exception(f"没找到可见表单项：{label_text}")
+
+
+def select_dropdown_value(page, label_text, target_text):
+    item = get_visible_form_item(page, label_text)
+    item.scroll_into_view_if_needed()
+
+    select_root = item.locator(".ant-select:not(.ant-select-disabled)").last
+    select_root.evaluate("(el) => el.click()")
 
     time.sleep(1)
 
+    page.evaluate(
+        """
+        (targetText) => {
+            const options = Array.from(document.querySelectorAll('.ant-select-item-option'))
+
+            const exact = options.find(item => {
+                const text = (item.innerText || item.getAttribute('title') || '').trim()
+                return text === targetText
+            })
+
+            if (exact) {
+                exact.click()
+                return
+            }
+
+            throw new Error('没找到选项：' + targetText)
+        }
+        """,
+        target_text,
+    )
+
+    time.sleep(1)
     print(f"已选择：{label_text} -> {target_text}")
 
 
 def fill_collection_form(page):
-
-    page.wait_for_selector(
-        "#riskType",
-        timeout=30000,
-    )
-
-    page.wait_for_selector(
-        "#contactResult",
-        timeout=30000,
-    )
+    page.locator(".add-collection-record").last.wait_for(state="attached", timeout=30000)
+    time.sleep(2)
 
     try:
-
-        select_dropdown_value(
-            page,
-            "风险分类",
-            "失联",
-        )
-
+        select_dropdown_value(page, "风险分类", "失联")
     except Exception as e:
-
         print("风险分类选择失败：", e)
 
     result = random.choice(CONTACT_RESULTS)
 
     try:
-
-        select_dropdown_value(
-            page,
-            "联络结果",
-            result,
-        )
-
+        select_dropdown_value(page, "联络结果", result)
     except Exception as e:
-
         print("联络结果选择失败：", e)
 
 
 def submit_form(page):
-
-    btn = page.locator(
-        "button.ant-btn-primary:has-text('提 交')"
-    ).last
-
+    btn = page.locator("button.ant-btn-primary:has-text('提 交')").last
     btn.scroll_into_view_if_needed()
-
-    btn.click(force=True)
+    btn.evaluate("(el) => el.click()")
 
     time.sleep(3)
-
     print("已提交")
 
 
 def close_detail_tab(page):
-
     try:
-
         page.evaluate(
             """
             () => {
+                const tabs = Array.from(document.querySelectorAll('.ant-tabs-tab'))
 
-                const tabs = Array.from(
-                    document.querySelectorAll('.ant-tabs-tab')
-                )
-
-                const detailTab = tabs.find(tab => {
-
-                    const text = (
-                        tab.innerText || ''
-                    ).trim()
-
+                const detailTabs = tabs.filter(tab => {
+                    const text = (tab.innerText || '').trim()
                     return text.includes('详情')
                 })
 
-                if (!detailTab) {
-                    return
-                }
+                detailTabs.forEach(tab => {
+                    const closeBtn =
+                        tab.querySelector('.ant-tabs-tab-remove') ||
+                        tab.querySelector('.ant-tabs-close-x') ||
+                        tab.querySelector('[aria-label="close"]')
 
-                const closeBtn = detailTab.querySelector(
-                    '.ant-tabs-tab-remove'
-                )
-
-                if (closeBtn) {
-                    closeBtn.click()
-                }
+                    if (closeBtn) closeBtn.click()
+                })
             }
             """
         )
 
         print("已关闭详情 TAB")
-
         time.sleep(2)
 
     except Exception as e:
-
         print("关闭详情 TAB 失败：", e)
 
 
 def process_case(page, task):
-
     contract_no = task["contract_no"]
 
     print(f"开始处理：{contract_no}")
@@ -821,7 +636,6 @@ def process_case(page, task):
     found = search_contract(page, contract_no)
 
     if not found:
-
         return {
             "contract_no": contract_no,
             "name": "",
@@ -843,7 +657,6 @@ def process_case(page, task):
     phone = get_real_phone(page)
 
     print("姓名：", name)
-
     print("手机号：", phone)
 
     click_call_btn(page)
@@ -868,13 +681,9 @@ def process_case(page, task):
 
 
 def main():
-
     try:
-
         if not os.path.exists(INPUT_EXCEL):
-
             print(f"没找到 input.xlsx：{INPUT_EXCEL}")
-
             return
 
         tasks = read_excel()
@@ -882,35 +691,26 @@ def main():
         results = []
 
         with sync_playwright() as p:
-
             browser, context, page = get_page(p)
 
             print("=" * 50)
             print("请确保：")
-            print("1.Chrome 已启动远程调试")
-            print("2.已经登录系统")
-            print("3.当前可访问工作台")
+            print("1. Chrome 已启动远程调试")
+            print("2. 已经登录系统")
+            print("3. 当前可访问工作台")
             print("=" * 50)
 
             input("确认后按回车继续...")
 
             for index, task in enumerate(tasks, start=1):
-
                 print(f"\n[{index}/{len(tasks)}]")
 
                 try:
-
                     page = ensure_page(p, page)
-
-                    result = process_case(
-                        page,
-                        task,
-                    )
+                    result = process_case(page, task)
 
                 except Exception as e:
-
                     print("处理失败")
-
                     print(traceback.format_exc())
 
                     result = {
@@ -922,23 +722,20 @@ def main():
                     }
 
                 results.append(result)
-
                 save_results(results)
 
-                time.sleep(2)
+                sleep_time = random.uniform(2, 4)
+                print(f"等待 {sleep_time:.1f} 秒后继续...")
+                time.sleep(sleep_time)
 
             print("\n全部完成")
-
             print(f"结果文件：{OUTPUT_EXCEL}")
 
     except Exception:
-
         print("程序发生未捕获异常：")
-
         print(traceback.format_exc())
 
     finally:
-
         pause_exit()
 
 
